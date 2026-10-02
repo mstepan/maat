@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"maat/internal/agent"
@@ -24,19 +25,27 @@ func main() {
 	}
 }
 func run(ctx context.Context, args []string, out io.Writer) error {
+	names := make([]string, 0, len(commands))
+	var selected command
+	for _, candidate := range commands {
+		names = append(names, candidate.name())
+		if len(args) > 0 && args[0] == candidate.name() {
+			selected = candidate
+		}
+	}
 	if len(args) == 0 {
-		return errors.New("usage: maat {run|status|reinitialize} --config PATH")
+		return fmt.Errorf("usage: maat {%s} --config PATH", strings.Join(names, "|"))
 	}
-	command := args[0]
-	if command != "run" && command != "status" && command != "reinitialize" {
-		return fmt.Errorf("unknown command %q", command)
+	if selected == nil {
+		return fmt.Errorf("unknown command %q", args[0])
 	}
-	fs := flag.NewFlagSet(command, flag.ContinueOnError)
+	fs := flag.NewFlagSet(selected.name(), flag.ContinueOnError)
 	fs.SetOutput(out)
 	path := fs.String("config", "", "configuration file")
-	node := fs.String("node", "", "reinitialization target")
-	generation := fs.Uint64("generation", 0, "expected current HA generation")
-	ack := fs.Bool("ack-data-replacement", false, "explicitly acknowledge replacing target data while retaining its old directory")
+	var request agent.ReinitializeRequest
+	fs.StringVar(&request.NodeID, "node", "", "reinitialization target")
+	fs.Uint64Var(&request.Generation, "generation", 0, "expected current HA generation")
+	fs.BoolVar(&request.Acknowledge, "ack-data-replacement", false, "explicitly acknowledge replacing target data while retaining its old directory")
 	if e := fs.Parse(args[1:]); e != nil {
 		return e
 	}
@@ -53,16 +62,5 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	slog.SetDefault(slog.Default().With("host", config.ID))
-	switch command {
-	case "run":
-		return agent.Run(ctx, config)
-	case "status":
-		return agent.Control(ctx, config, "/status", nil, out)
-	case "reinitialize":
-		if *node == "" || *generation == 0 || !*ack {
-			return errors.New("reinitialize requires --node, --generation, and --ack-data-replacement")
-		}
-		return agent.Control(ctx, config, "/reinitialize", agent.ReinitializeRequest{NodeID: *node, Generation: *generation, Acknowledge: *ack}, out)
-	}
-	return nil
+	return selected.execute(ctx, config, request, out)
 }

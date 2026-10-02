@@ -1,4 +1,6 @@
-.PHONY: build run test fmt vet clean
+.PHONY: build run test fmt vet clean all
+
+all: clean fmt vet build test integration
 
 build:
 	mkdir -p bin

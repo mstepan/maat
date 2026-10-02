@@ -11,56 +11,56 @@ x-node: &node
     - replication-password
 
 services:
-  a:
+  instance-a:
     <<: *node
-    hostname: a
+    hostname: instance-a
     labels:
       maat.cluster: maat_dev
-      maat.node: a
+      maat.node: instance-a
     volumes:
-      - a-data:/var/lib/maat/postgres
-      - a-control:/var/lib/maat/control
-      - ./deploy/a.json:/etc/maat/config.json:ro
+      - instance-a-data:/var/lib/maat/postgres
+      - instance-a-control:/var/lib/maat/control
+      - ./deploy/instance-a.json:/etc/maat/config.json:ro
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "127.0.0.1:15432:5432"
       - "127.0.0.1:18080:8000"
-  b:
+  instance-b:
     <<: *node
-    hostname: b
+    hostname: instance-b
     labels:
       maat.cluster: maat_dev
-      maat.node: b
+      maat.node: instance-b
     volumes:
-      - b-data:/var/lib/maat/postgres
-      - b-control:/var/lib/maat/control
-      - ./deploy/b.json:/etc/maat/config.json:ro
+      - instance-b-data:/var/lib/maat/postgres
+      - instance-b-control:/var/lib/maat/control
+      - ./deploy/instance-b.json:/etc/maat/config.json:ro
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "127.0.0.1:15433:5432"
       - "127.0.0.1:18081:8000"
-  c:
+  instance-c:
     <<: *node
-    hostname: c
+    hostname: instance-c
     labels:
       maat.cluster: maat_dev
-      maat.node: c
+      maat.node: instance-c
     volumes:
-      - c-data:/var/lib/maat/postgres
-      - c-control:/var/lib/maat/control
-      - ./deploy/c.json:/etc/maat/config.json:ro
+      - instance-c-data:/var/lib/maat/postgres
+      - instance-c-control:/var/lib/maat/control
+      - ./deploy/instance-c.json:/etc/maat/config.json:ro
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "127.0.0.1:15434:5432"
       - "127.0.0.1:18082:8000"
 
 volumes:
-  a-data:
-  a-control:
-  b-data:
-  b-control:
-  c-data:
-  c-control:
+  instance-a-data:
+  instance-a-control:
+  instance-b-data:
+  instance-b-control:
+  instance-c-data:
+  instance-c-control:
 
 secrets:
   postgres-password:

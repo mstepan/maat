@@ -27,11 +27,11 @@ jobs:
         run: |
           make fmt
           git diff --exit-code -- '*.go'
+      - name: Vet
+        run: make vet
       - name: Test
         run: make test
       - name: Test with race detector and fault hooks
         run: go test -race -tags maat_faults ./...
-      - name: Vet
-        run: make vet
       - name: Build
         run: make build

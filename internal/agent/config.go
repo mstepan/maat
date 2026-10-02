@@ -38,6 +38,7 @@ type Config struct {
 }
 
 var identifier = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+var nodeIdentifier = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
 func ReadConfig(r io.Reader) (Config, error) {
 	c := Config{MaxPromotionLagBytes: 16 * 1024 * 1024, MaxObservationAgeSeconds: 30, ObservationIntervalSeconds: 1, FailureThreshold: 3, OperationTimeoutSeconds: 10, RecoveryTimeoutSeconds: 120}
@@ -54,7 +55,7 @@ func ReadConfig(r io.Reader) (Config, error) {
 	}
 	ids, addresses := map[string]bool{}, map[string]bool{}
 	for _, n := range c.Nodes {
-		if !identifier.MatchString(n.ID) || ids[n.ID] {
+		if !nodeIdentifier.MatchString(n.ID) || ids[n.ID] {
 			return c, fmt.Errorf("invalid or duplicate node ID")
 		}
 		ids[n.ID] = true

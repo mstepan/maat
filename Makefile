@@ -11,6 +11,7 @@ run:
 
 test:
 	go test ./...
+	python3 -m unittest discover -s deploy -p 'test_*.py'
 
 fmt:
 	go fmt ./...
@@ -21,12 +22,14 @@ vet:
 clean:
 	rm -f bin/maat
 
-.PHONY: docker-build compose-up compose-down compose-clean integration
+.PHONY: linux-build docker-build compose-up compose-down compose-clean integration
 MAAT_DOCKER_ARCH ?= $(shell docker version --format '{{.Server.Arch}}')
 
-docker-build:
+linux-build:
 	mkdir -p bin
 	CGO_ENABLED=0 GOOS=linux GOARCH=$(MAAT_DOCKER_ARCH) go build -o bin/maat-linux .
+
+docker-build: linux-build
 	docker compose build
 
 compose-up: docker-build
@@ -41,8 +44,8 @@ compose-clean:
 	rm -f .secrets/postgres-password .secrets/replication-password
 	rmdir .secrets 2>/dev/null || true
 
-integration:
-	python3 deploy/integration.py
+integration: linux-build
+	python3 deploy/run_integration.py
 
 .PHONY: fault-build
 

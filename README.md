@@ -53,7 +53,7 @@ replica configuration. Without a majority, it does not grant new authority.
 An authorized candidate is a possible writer even when a promotion result is
 unknown, so replacing it requires fencing that candidate too.
 
-Defaults in [deploy/a.json](deploy/a.json) are one-second observations, three
+Defaults in [deploy/instance-a.json](deploy/instance-a.json) are one-second observations, three
 failed observations, a 30-second evidence age limit, and 16 MiB maximum observed
 promotion lag. Lag is measured against the last accepted primary sample, not the
 unobservable final WAL position. Missing/stale evidence can leave the cluster
@@ -83,8 +83,11 @@ builds the pinned image, prepares ignored `.secrets/` credentials, and starts
 three containers without recreating existing ones. A rebuilt image is not applied
 to existing containers; upgrading them requires a separate recovery workflow.
 `MAAT_DOCKER_ARCH=arm64` or `amd64` can override architecture
-detection. Initial bootstrap is automatic: node `a` seeds Raft, and a committed
-fresh-storage decision authorizes the initial database primary `a`.
+detection. Initial bootstrap is automatic: node `instance-a` seeds Raft, and a committed
+fresh-storage decision authorizes the initial database primary `instance-a`.
+Compose services, hostnames, and controller node IDs are `instance-a`,
+`instance-b`, and `instance-c`. Replication slots use underscores, for example
+`maat_instance_c`.
 
 Each node has separate database and control volumes. PostgreSQL data lives at
 `/var/lib/maat/postgres/data`, beneath its volume root so recovery can rename it
@@ -122,14 +125,14 @@ Host ports bind only to loopback:
 
 | Node | PostgreSQL | Read-only status |
 | --- | --- | --- |
-| a | `127.0.0.1:15432` | `http://127.0.0.1:18080/status` |
-| b | `127.0.0.1:15433` | `http://127.0.0.1:18081/status` |
-| c | `127.0.0.1:15434` | `http://127.0.0.1:18082/status` |
+| `instance-a` | `127.0.0.1:15432` | `http://127.0.0.1:18080/status` |
+| `instance-b` | `127.0.0.1:15433` | `http://127.0.0.1:18081/status` |
+| `instance-c` | `127.0.0.1:15434` | `http://127.0.0.1:18082/status` |
 
 ```sh
 curl -fsS http://127.0.0.1:18080/status | python3 -m json.tool
-docker compose exec -T --user postgres a maat status --config /etc/maat/config.json
-docker compose exec -T --user postgres a psql \
+docker compose exec -T --user postgres instance-a maat status --config /etc/maat/config.json
+docker compose exec -T --user postgres instance-a psql \
   -h /var/lib/maat/control/postgres/socket -U postgres -d postgres \
   -AtX -v ON_ERROR_STOP=1 -c 'SELECT pg_is_in_recovery();'
 ```
@@ -140,26 +143,42 @@ receiver, and upstream. It also exposes Raft leader/term, evidence age,
 reconciliation errors, recovery state, and durable `state.History`. A local
 status response or elected leader alone does not prove current quorum.
 
+`make integration` builds the Linux agent and starts a fresh Compose project named
+`maat-integration-<unique-id>`. Each run has its own cluster/fencing identity,
+credentials, volumes, network, and dynamically assigned loopback status ports.
+It publishes no PostgreSQL host ports, so it can run alongside the `maat-dev`
+cluster started by `make compose-up`.
+
+The runner waits for a healthy three-node topology before injecting failures and
+stops only its own project afterward, including after test or startup failure.
+Test or shutdown failures still make the command fail. Containers and volumes
+are retained for inspection; the generated Compose file, configuration,
+credentials, and binary copy are kept in the printed `bin/maat-integration-*`
+directory. Each invocation uses fresh storage.
+
 The explicit integration runner injects failures into this dedicated lab and
-leaves marker rows as evidence. Begin with all three nodes healthy. It checks SQL
+leaves marker rows as evidence. It checks SQL
 roles, replay, container isolation, and transition history, then attempts normal
 rejoin. On failure it restores its stopped replicas/disconnected network; an old
 primary fenced during an incomplete transition remains stopped for inspection.
 
 ```sh
 make integration                                      # primary process failure and rejoin
-python3 deploy/integration.py --scenario agent-restart
-python3 deploy/integration.py --scenario majority
-python3 deploy/integration.py --scenario partition
-python3 deploy/integration.py --scenario replica-process
-python3 deploy/integration.py --scenario replica-container
-python3 deploy/integration.py --scenario container
-python3 deploy/integration.py --scenario authorized-crash
-python3 deploy/integration.py --scenario all --timeout 120
+python3 deploy/run_integration.py --scenario agent-restart
+python3 deploy/run_integration.py --scenario majority
+python3 deploy/run_integration.py --scenario partition
+python3 deploy/run_integration.py --scenario replica-process
+python3 deploy/run_integration.py --scenario replica-container
+python3 deploy/run_integration.py --scenario container
+python3 deploy/run_integration.py --scenario authorized-crash
+python3 deploy/run_integration.py --scenario all --timeout 120
 ```
 
 These are lab fault-injection commands, not health checks. They never delete
 volumes. See [validation results](docs/validation.md) before interpreting coverage.
+The Python commands use the binary built by `make integration` or `make linux-build`.
+The lower-level `deploy/integration.py` still targets an already-running `maat-dev`
+cluster; use it directly only when you intend to inject faults into that local lab.
 
 Deterministic crash and competing-proposal tests use a separate binary whose
 filesystem pause hooks are excluded from normal builds. Each run creates fresh
@@ -180,7 +199,7 @@ directories. Do not deploy the fault-enabled binary as the normal controller.
 ## Recover an old primary or rebuild a replica
 
 After a completed failover, restart the same stopped container, for example
-`docker compose start a`. The guarded startup path keeps PostgreSQL stopped
+`docker compose start instance-a`. The guarded startup path keeps PostgreSQL stopped
 until current authority permits rejoin. Compatible replicas follow the new
 upstream; an old primary uses native `pg_rewind`, standby repair, and verification.
 
@@ -189,11 +208,11 @@ There is no automatic data replacement. Inspect status and resolve its cause;
 if rebuilding is intended, read the current `raft_leader`, `state.Generation`,
 and `state.Primary`. Run the following on the current leader, using the current
 generation and a target that is **not** the authorized primary. This example
-assumes leader `b`, target `a`, and generation `2`:
+assumes leader `instance-b`, target `instance-a`, and generation `2`:
 
 ```sh
-docker compose exec -T --user postgres b maat reinitialize \
-  --config /etc/maat/config.json --node a --generation 2 --ack-data-replacement
+docker compose exec -T --user postgres instance-b maat reinitialize \
+  --config /etc/maat/config.json --node instance-a --generation 2 --ack-data-replacement
 ```
 
 The local socket is protected by filesystem permissions. A follower rejects the

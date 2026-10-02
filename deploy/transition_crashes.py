@@ -27,11 +27,12 @@ PREAUTH = {"before-begin", "after-begin", "before-fencing", "after-fencing", "be
 
 
 class CrashLab(Lab):
-    def __init__(self, timeout, directory, binary):
+    def __init__(self, timeout, directory, binary, project_prefix="maat-crash"):
         super().__init__(timeout)
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
-        self.project = "maat-crash-" + uuid.uuid4().hex[:12]
+        self.project = project_prefix + "-" + uuid.uuid4().hex[:12]
+        self.network = self.project + "_default"
         self.cluster = self.project.replace("-", "_")
         self.compose = ["docker", "compose", "--project-name", self.project, "-f", str(self.directory / "compose.json")]
         self.ports = {}

@@ -43,6 +43,22 @@ func configForTest(t *testing.T) Config {
 	return Config{DataDir: filepath.Join(base, "data"), StateDir: filepath.Join(base, "state"), PasswordFile: filepath.Join(base, "admin"), ReplicationPasswordFile: filepath.Join(base, "replication"), Port: 5432, NodeID: "a", Peers: []string{"a", "b", "c"}}
 }
 
+func TestInstanceNodeIDsAndSlots(t *testing.T) {
+	cfg := configForTest(t)
+	cfg.NodeID = "instance-a"
+	cfg.Peers = []string{"instance-a", "instance-b", "instance-c"}
+	if _, err := New(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := slot("instance-c"); got != "maat_instance_c" {
+		t.Fatalf("invalid slot name: %q", got)
+	}
+	cfg.Peers = append(cfg.Peers, "instance_a")
+	if _, err := New(cfg); err == nil {
+		t.Fatal("accepted peers with colliding replication slots")
+	}
+}
+
 func TestRejectUnsafePathsAndCredentials(t *testing.T) {
 	cfg := configForTest(t)
 	if _, err := New(cfg); err != nil {

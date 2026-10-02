@@ -1,0 +1,37 @@
+{
+  "id": "instance-a",
+  "cluster_id": "maat_dev",
+  "bootstrap_seed": "instance-a",
+  "initial_primary": "instance-a",
+  "data_dir": "/var/lib/maat/postgres/data",
+  "state_dir": "/var/lib/maat/control",
+  "password_file": "/run/maat/postgres-password",
+  "replication_password_file": "/run/maat/replication-password",
+  "docker_socket": "/var/run/docker.sock",
+  "nodes": [
+    {
+      "id": "instance-a",
+      "raft_address": "instance-a:7000",
+      "http_address": "instance-a:8000",
+      "postgres_address": "instance-a:5432"
+    },
+    {
+      "id": "instance-b",
+      "raft_address": "instance-b:7000",
+      "http_address": "instance-b:8000",
+      "postgres_address": "instance-b:5432"
+    },
+    {
+      "id": "instance-c",
+      "raft_address": "instance-c:7000",
+      "http_address": "instance-c:8000",
+      "postgres_address": "instance-c:5432"
+    }
+  ],
+  "max_promotion_lag_bytes": 16777216,
+  "max_observation_age_seconds": 30,
+  "observation_interval_seconds": 1,
+  "failure_threshold": 3,
+  "operation_timeout_seconds": 10,
+  "recovery_timeout_seconds": 120
+}

@@ -20,7 +20,7 @@ func TestCommandRequiresExplicitValidConfiguration(t *testing.T) {
 }
 
 func TestConfiguredNodeAppearsInLogs(t *testing.T) {
-	config, err := os.ReadFile("deploy/a.json")
+	config, err := os.ReadFile("deploy/instance-a.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestConfiguredNodeAppearsInLogs(t *testing.T) {
 	if err := json.Unmarshal(logs.Bytes(), &record); err != nil {
 		t.Fatal(err)
 	}
-	if record["host"] != "a" {
-		t.Fatalf("log host = %v, want a", record["host"])
+	if record["host"] != "instance-a" {
+		t.Fatalf("log host = %v, want instance-a", record["host"])
 	}
 }

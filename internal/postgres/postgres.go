@@ -53,11 +53,13 @@ func New(cfg Config) (*Controller, error) {
 		return nil, errors.New("invalid PostgreSQL node ID or port")
 	}
 	seen := map[string]bool{}
+	slots := map[string]bool{}
 	for _, p := range cfg.Peers {
-		if !identifier(p) || seen[p] {
+		if !identifier(p) || seen[p] || slots[slot(p)] {
 			return nil, errors.New("invalid or duplicate PostgreSQL peer")
 		}
 		seen[p] = true
+		slots[slot(p)] = true
 	}
 	if !seen[cfg.NodeID] {
 		return nil, errors.New("PostgreSQL peers omit local node")

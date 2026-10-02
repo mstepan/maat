@@ -38,3 +38,17 @@ func TestConfigDefaultsAndZeroLag(t *testing.T) {
 		t.Fatalf("zero lag not preserved: %v", err)
 	}
 }
+
+func TestConfigInstanceNodeIDs(t *testing.T) {
+	input := strings.NewReplacer(`"a"`, `"instance-a"`, `"b"`, `"instance-b"`, `"c"`, `"instance-c"`, `a:`, `instance-a:`, `b:`, `instance-b:`, `c:`, `instance-c:`).Replace(validConfig)
+	c, err := ReadConfig(strings.NewReader(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ID != "instance-a" || c.InitialPrimary != "instance-a" || c.BootstrapSeed != "instance-a" {
+		t.Fatalf("unexpected instance IDs: %+v", c)
+	}
+	if _, err := ReadConfig(strings.NewReader(strings.Replace(input, `"cluster_id":"test"`, `"cluster_id":"invalid-cluster"`, 1))); err == nil {
+		t.Fatal("accepted a hyphenated cluster ID")
+	}
+}

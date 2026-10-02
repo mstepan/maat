@@ -17,7 +17,7 @@ import urllib.request
 import uuid
 
 ROOT = Path(__file__).resolve().parent.parent
-NODES = ("a", "b", "c")
+NODES = ("instance-a", "instance-b", "instance-c")
 NETWORK = "maat-dev_default"
 SOCKET = "/var/lib/maat/control/postgres/socket"
 DATA = "/var/lib/maat/postgres/data"
@@ -40,6 +40,9 @@ def require(condition, message):
 class Lab:
     def __init__(self, timeout):
         self.timeout = timeout
+        self.project = "maat-dev"
+        self.compose = COMPOSE
+        self.network = NETWORK
         self.ids = {}
         self.events = []
         self.latest = {}
@@ -102,7 +105,7 @@ class Lab:
         return status
 
     def sql(self, node, query):
-        return self.command(COMPOSE + ["exec", "-T", "--user", "postgres", node,
+        return self.command(self.compose + ["exec", "-T", "--user", "postgres", node,
                             "psql", "-h", SOCKET, "-U", "postgres", "-d", "postgres",
                             "-AtX", "-v", "ON_ERROR_STOP=1", "-c", query], transient=True, timeout=8)
 
@@ -261,14 +264,14 @@ class Lab:
 
     def start(self, node):
         self.identity(node)
-        self.command(COMPOSE + ["start", node])
+        self.command(self.compose + ["start", node])
         self.restore_nodes.discard(node)
         self.event("container started through guarded entrypoint", node=node)
 
     def restore_network(self, node):
         self.identity(node)
-        if NETWORK not in self.inspect(node).get("NetworkSettings", {}).get("Networks", {}):
-            self.command(["docker", "network", "connect", "--alias", node, NETWORK, self.ids[node]])
+        if self.network not in self.inspect(node).get("NetworkSettings", {}).get("Networks", {}):
+            self.command(["docker", "network", "connect", "--alias", node, self.network, self.ids[node]])
         self.disconnected.discard(node)
         self.event("test network disconnect restored", node=node)
 
@@ -285,7 +288,7 @@ class Lab:
             require(isinstance(pid, int) and pid > 1, "status must expose a valid agent_pid")
             incarnation = before["local"]["incarnation"]
             self.identity(primary)
-            self.command(COMPOSE + ["exec", "-T", "--user", "postgres", primary,
+            self.command(self.compose + ["exec", "-T", "--user", "postgres", primary,
                                     "sh", "-c", 'kill -KILL "$1"', "sh", str(pid)])
             def restarted():
                 require(not self.role(primary)["recovery"], "agent loss changed PostgreSQL primary role")
@@ -305,7 +308,7 @@ class Lab:
                 self.command(["docker", "kill", self.ids[replica]])
                 require(self.stopped(replica), "replica container did not stop")
             else:
-                self.command(COMPOSE + ["exec", "-T", "--user", "postgres", replica,
+                self.command(self.compose + ["exec", "-T", "--user", "postgres", replica,
                                         "pg_ctl", "-D", DATA, "-m", "immediate", "-w", "stop"])
             # Write while a replica is unavailable and prove authority remains
             # unchanged beyond the configured failure-detection threshold.
@@ -331,7 +334,7 @@ class Lab:
             for node in replicas:
                 self.identity(node)
                 self.restore_nodes.add(node)
-                self.command(COMPOSE + ["stop", "--timeout", "20", node], timeout=30)
+                self.command(self.compose + ["stop", "--timeout", "20", node], timeout=30)
             config = json.loads((ROOT / "deploy" / f"{primary}.json").read_text())
             duration = max(10, (config["failure_threshold"] + 3) * config["observation_interval_seconds"])
             deadline = time.monotonic() + duration
@@ -349,19 +352,19 @@ class Lab:
         else:
             self.identity(primary)
             if name == "partition":
-                network = json.loads(self.command(["docker", "network", "inspect", NETWORK]))[0]
-                require(network.get("Name") == NETWORK and network.get("Labels", {}).get("com.docker.compose.project") == "maat-dev",
+                network = json.loads(self.command(["docker", "network", "inspect", self.network]))[0]
+                require(network.get("Name") == self.network and network.get("Labels", {}).get("com.docker.compose.project") == self.project,
                         "unexpected network identity")
-                require(NETWORK in self.inspect(primary)["NetworkSettings"]["Networks"], "primary is not on managed network")
+                require(self.network in self.inspect(primary)["NetworkSettings"]["Networks"], "primary is not on managed network")
                 self.disconnected.add(primary)
-                self.command(["docker", "network", "disconnect", NETWORK, self.ids[primary]])
+                self.command(["docker", "network", "disconnect", self.network, self.ids[primary]])
                 require(not self.role(primary)["recovery"], "partition did not leave old PostgreSQL alive")
                 self.event("partition injected with old database verified writable", node=primary)
             elif name == "container":
                 self.command(["docker", "kill", self.ids[primary]])
                 self.event("primary container killed", node=primary)
             else:
-                self.command(COMPOSE + ["exec", "-T", "--user", "postgres", primary,
+                self.command(self.compose + ["exec", "-T", "--user", "postgres", primary,
                                         "pg_ctl", "-D", DATA, "-m", "immediate", "-w", "stop"])
                 self.event("PostgreSQL process stopped", node=primary)
             if name == "authorized-crash":
@@ -424,14 +427,14 @@ class Lab:
         return {"container_ids": self.ids, "statuses": statuses, "events": self.events}
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(lab_factory=Lab, description=__doc__):
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--scenario", choices=("smoke", "agent-restart", "majority", "partition", "container", "authorized-crash", "replica-process", "replica-container", "all"), default="smoke")
     parser.add_argument("--timeout", type=int, default=120, help="maximum seconds per convergence phase")
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
-    lab = Lab(args.timeout)
+    lab = lab_factory(args.timeout)
     failed = False
     try:
         scenarios = ("smoke", "agent-restart", "majority", "partition", "container", "authorized-crash", "replica-process", "replica-container") if args.scenario == "all" else (args.scenario,)

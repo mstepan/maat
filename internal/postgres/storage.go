@@ -226,13 +226,13 @@ func (c *Controller) validateData(path string) error {
 	}
 	return nil
 }
-func slot(node string) string { return "maat_" + node }
+func slot(node string) string { return "maat_" + strings.ReplaceAll(node, "-", "_") }
 func identifier(s string) bool {
 	if len(s) == 0 || len(s) > 40 {
 		return false
 	}
 	for _, r := range s {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_') {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
 			return false
 		}
 	}

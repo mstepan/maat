@@ -1,0 +1,37 @@
+name: maat-ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Check formatting
+        run: |
+          make fmt
+          git diff --exit-code -- '*.go'
+      - name: Test
+        run: make test
+      - name: Test with race detector and fault hooks
+        run: go test -race -tags maat_faults ./...
+      - name: Vet
+        run: make vet
+      - name: Build
+        run: make build

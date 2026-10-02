@@ -229,6 +229,12 @@ specification section 34 coverage is still required before a production claim.
 
 ## Development checks
 
+The [GitHub Actions CI workflow](.github/workflows/ci.yml) runs on pushes, pull
+requests, and manual dispatch. It checks Go formatting, runs tests plus race tests
+with the test-only fault hooks, vets the code, and builds using the Go version in
+`go.mod`. Native PostgreSQL lifecycle and Docker Compose fault scenarios remain
+explicit local checks; CI does not exercise them.
+
 ```sh
 make fmt
 make test

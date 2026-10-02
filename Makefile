@@ -21,7 +21,7 @@ vet:
 clean:
 	rm -f bin/maat
 
-.PHONY: docker-build compose-up integration
+.PHONY: docker-build compose-up compose-down compose-clean integration
 MAAT_DOCKER_ARCH ?= $(shell docker version --format '{{.Server.Arch}}')
 
 docker-build:
@@ -31,7 +31,15 @@ docker-build:
 
 compose-up: docker-build
 	sh deploy/prepare.sh
-	docker compose up -d
+	docker compose up -d --no-recreate
+
+compose-down:
+	docker compose stop
+
+compose-clean:
+	docker compose down --volumes --remove-orphans --rmi local
+	rm -f .secrets/postgres-password .secrets/replication-password
+	rmdir .secrets 2>/dev/null || true
 
 integration:
 	python3 deploy/integration.py

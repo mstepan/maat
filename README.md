@@ -80,7 +80,9 @@ make compose-up
 
 `make compose-up` cross-compiles the agent for the Docker server architecture,
 builds the pinned image, prepares ignored `.secrets/` credentials, and starts
-three containers. `MAAT_DOCKER_ARCH=arm64` or `amd64` can override architecture
+three containers without recreating existing ones. A rebuilt image is not applied
+to existing containers; upgrading them requires a separate recovery workflow.
+`MAAT_DOCKER_ARCH=arm64` or `amd64` can override architecture
 detection. Initial bootstrap is automatic: node `a` seeds Raft, and a committed
 fresh-storage decision authorizes the initial database primary `a`.
 
@@ -91,22 +93,28 @@ The supervisor starts only the agent; the agent decides whether PostgreSQL can
 start. An agent crash is restarted without stopping an already-running database.
 
 **Container IDs are persisted membership identities. Never recreate containers
-against surviving volumes.** Re-running `make compose-up` after an image/config
-change, `docker compose up --force-recreate`, or `docker compose down` followed by
-`up` can change those IDs and is not a supported upgrade/recovery path. Membership
+against surviving volumes.** `docker compose up --force-recreate` or
+`docker compose down` followed by `up` can change those IDs and is not a
+supported upgrade/recovery path. Membership
 replacement and in-place upgrades need a separate workflow. Do not erase Raft
 state to work around an identity mismatch.
 
 For an existing lab, preserve the containers and volumes:
 
 ```sh
-docker compose stop
+make compose-down
 docker compose start
 ```
 
-Ordinary cleanup is `docker compose stop`; it does not delete volumes. Retain
+Ordinary cleanup is `make compose-down`; it does not delete volumes. Retain
 both PostgreSQL and control storage when investigating failures or rolling back.
 The previous startup-only binary cannot operate or recover the HA cluster.
+
+To discard the entire development lab and start with fresh identities and data,
+run `make compose-clean`, then `make compose-up`. This removes the Compose
+containers, volumes, network, local images, and generated lab credentials. It
+permanently deletes database and Raft state; use it only when a fresh lab is
+intended.
 
 ## Observe and exercise the cluster
 

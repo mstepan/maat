@@ -43,25 +43,26 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if *path == "" || fs.NArg() != 0 {
 		return errors.New("exactly one --config path and no positional arguments are required")
 	}
-	f, e := os.Open(*path)
-	if e != nil {
-		return e
+	f, err := os.Open(*path)
+	if err != nil {
+		return err
 	}
 	defer f.Close()
-	c, e := agent.ReadConfig(f)
-	if e != nil {
-		return e
+	config, err := agent.ReadConfig(f)
+	if err != nil {
+		return err
 	}
+	slog.SetDefault(slog.Default().With("host", config.ID))
 	switch command {
 	case "run":
-		return agent.Run(ctx, c)
+		return agent.Run(ctx, config)
 	case "status":
-		return agent.Control(ctx, c, "/status", nil, out)
+		return agent.Control(ctx, config, "/status", nil, out)
 	case "reinitialize":
 		if *node == "" || *generation == 0 || !*ack {
 			return errors.New("reinitialize requires --node, --generation, and --ack-data-replacement")
 		}
-		return agent.Control(ctx, c, "/reinitialize", agent.ReinitializeRequest{NodeID: *node, Generation: *generation, Acknowledge: *ack}, out)
+		return agent.Control(ctx, config, "/reinitialize", agent.ReinitializeRequest{NodeID: *node, Generation: *generation, Acknowledge: *ack}, out)
 	}
 	return nil
 }

@@ -1,0 +1,8 @@
+.git
+.codex
+.agents
+.secrets
+.superpowers
+openspec
+bin/*
+!bin/maat-linux

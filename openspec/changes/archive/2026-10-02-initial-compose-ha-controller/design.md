@@ -2,7 +2,7 @@
 
 The existing executable has no HA behavior. This change implements a development
 cluster for the maintainers of Maat, following the
-[technical specification](../../../docs/Custom%20PostgreSQL%20HA%20Controller%20%E2%80%94%20Technical%20Specification.md).
+[technical specification](../../../../docs/Custom%20PostgreSQL%20HA%20Controller%20%E2%80%94%20Technical%20Specification.md).
 The interview established Docker Compose, replaceable Docker fencing, an
 operator gate for base-backup recovery, and a configurable 16 MiB lag limit.
 Other defaults below are proposed implementation choices.

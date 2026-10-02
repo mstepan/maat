@@ -1,15 +1,21 @@
 # maat
 
-A custom PostgreSQL high-availability controller written in Go, similar in
-concept to Patroni, without etcd. One agent runs alongside each PostgreSQL
-instance; the agents collectively form a Raft control plane, while PostgreSQL
-handles native physical streaming replication.
+A Go controller for a three-node PostgreSQL 18 development cluster. One agent runs
+beside each database; HashiCorp Raft and BoltDB persist primary authorization,
+HA generations, transitions, and recovery requests. PostgreSQL performs native
+asynchronous physical replication. No etcd or separate controller service is used.
 
-**Status:** specification and initial Go entry point only. The current program
-prints `Maat up and running...`; HA orchestration is not implemented yet.
+**Status: implemented development controller; not production-ready.** Unit, race,
+real Raft restart/quorum, and native PostgreSQL lifecycle tests have passed.
+The final six-scenario Compose sequence also passed, including primary process/container
+failures, agent restart, majority loss, a live-primary partition, and a candidate
+crash after authorization. The [validation matrix](docs/validation.md) records
+coverage and remaining gaps.
+Asynchronous failover can lose acknowledged transactions. The leader-local
+candidate policy does not necessarily choose the replica with the most WAL.
 
 The [technical specification](<docs/Custom PostgreSQL HA Controller — Technical Specification.md>)
-defines the target architecture and safety requirements.
+is the source of truth for architecture and safety requirements.
 
 ## Why maat?
 
@@ -25,99 +31,227 @@ and a single authorized primary.
 via [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Maat.svg),
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Shown unchanged.*
 
-## Target architecture
+## Implemented scope
 
-The initial topology is three nodes, allowing Raft to retain a majority after
-one node fails:
+- Fixed three-member Raft topology, fresh-storage bootstrap, durable log/snapshot
+  state, current-quorum checks, and leadership transfer.
+- PostgreSQL observation, initialization, physical replication with a dedicated
+  `maat_repl` role, finite-retention replication slots, and upstream reconfiguration.
+- Docker socket fencing with immutable container IDs, disabled restart policy,
+  bounded API calls, and separate inspection of stopped state.
+- Explicit `validating → fencing → authorized → promoting → reconfiguring → complete`
+  transitions, guarded promotion, and restart reconciliation.
+- Journaled rewind and explicit operator-approved rebuild that retains old data.
+- Strict JSON configuration, structured logs, read-only status, and a local
+  administrative Unix socket.
 
-```text
-Node A                 Node B                 Node C
-Go agent               Go agent               Go agent
-PostgreSQL             PostgreSQL             PostgreSQL
-    └──────── agents coordinate through Raft ────────┘
-        PostgreSQL primary streams WAL to replicas
-```
+Raft leadership and PostgreSQL primary status are separate. HA generation and
+PostgreSQL timeline are also separate. Failure detection initiates validation;
+it does not grant permission to promote. The agent fences and verifies the old
+writer before committing replacement authorization, then verifies promotion and
+replica configuration. Without a majority, it does not grant new authority.
+An authorized candidate is a possible writer even when a promotion result is
+unknown, so replacing it requires fencing that candidate too.
 
-| Component | Responsibility |
-| --- | --- |
-| Raft control plane | Leader election, membership, cluster generation, primary authorization, desired topology, and failover coordination |
-| Go agent | PostgreSQL observation and control, fencing, replication configuration, and idempotent reconciliation |
-| PostgreSQL data plane | WAL generation, streaming, replay, physical replication, timelines, and replication slots |
+Defaults in [deploy/a.json](deploy/a.json) are one-second observations, three
+failed observations, a 30-second evidence age limit, and 16 MiB maximum observed
+promotion lag. Lag is measured against the last accepted primary sample, not the
+unobservable final WAL position. Missing/stale evidence can leave the cluster
+unavailable. Agents invalidate old evidence after a peer incarnation changes.
+Conservative timeline validation can wait for replica restartpoints after a
+promotion; the integration runner checkpoints and verifies timeline alignment.
 
-There is no separate control-plane service. Use an existing Go Raft
-implementation; the MVP specifies HashiCorp Raft with durable state.
-Raft does not replicate database data, and a Raft leader does not automatically
-become the PostgreSQL primary. HA generation and PostgreSQL timeline are
-distinct: generation identifies primary authorization, while timeline identifies
-database history.
+## Start a fresh development lab
 
-## Planned MVP
+Requires Go 1.27.1 or newer, Docker Engine with Compose, Python 3, and OpenSSL.
+Docker API versions 1.44–1.54 are supported through version negotiation. Docker
+must expose its socket at `/var/run/docker.sock`. The image is pinned to
+PostgreSQL 18 Bookworm by digest in [Dockerfile](Dockerfile).
 
-- Three Go agents and PostgreSQL instances, with Raft membership and leader election.
-- Native asynchronous physical streaming replication and health monitoring.
-- A fencing abstraction, verified promotion, and replica upstream reconfiguration.
-- Idempotent reconciliation of PostgreSQL against Raft-authorized desired state.
-- Old-primary rejoin through `pg_rewind`, or a fresh `pg_basebackup` when rewind
-  cannot be used safely.
-
-Asynchronous replication can lose transactions that have not reached the promoted
-replica. Lossless failover is not guaranteed. Synchronous replication, maintenance
-mode, transport TLS, node authentication, administrative authorization, and
-metrics are planned extensions; none are implemented in the current entry point.
-
-## Failover and safety
-
-The planned failover sequence is:
-
-1. Detect primary failure and establish Raft leadership with quorum.
-2. Validate the candidate's membership, health, recovery state, freshness,
-   timeline, and acceptable WAL/replay position.
-3. Fence the old primary and verify it cannot accept writes.
-4. Commit the new primary authorization and increment the HA generation in Raft.
-5. Promote PostgreSQL and verify it is no longer in recovery.
-6. Reconfigure remaining replicas to follow the new primary and verify replication.
-
-Failure detection or a failed TCP connection is insufficient authorization or
-fencing. At most one node may be authorized as primary in the current generation;
-a new primary must not be authorized while the old primary may still accept
-writes. Stale nodes must not self-promote, and quorum loss must not trigger
-unilateral promotion.
-
-Transitions must use explicit, recoverable states, such as
-`REPLICA → CANDIDATE → FENCING → PROMOTING → PRIMARY`, and survive agent crashes
-between fencing, authorization, and promotion. Every PostgreSQL control operation
-must be followed by observation and verification.
-
-A returning old primary must be prevented from accepting application writes,
-rewound or reinitialized, and verified as a replica before being marked healthy.
-Agent failure and PostgreSQL failure require separate handling; losing an agent
-alone does not automatically change the database role.
-
-Automatic failover must not be described as production-ready until the failure
-scenarios in specification section 34 have been validated, including partitions,
-quorum loss, fencing failures, concurrent promotion attempts, and transition
-crashes.
-
-## Development
-
-Requires Go 1.27.1 or newer, as declared in `go.mod`. These commands operate on
-the current Go program; they do not provision a PostgreSQL cluster.
+Run from the repository root, with no existing `maat-dev` cluster or old volumes:
 
 ```sh
-make run    # run the application
-make build  # build bin/maat
-make test   # run tests
-make fmt    # format Go files
-make vet    # check for common mistakes
-make clean  # remove the built binary
+make fmt
+make test
+make vet
+make build
+make compose-up
 ```
+
+`make compose-up` cross-compiles the agent for the Docker server architecture,
+builds the pinned image, prepares ignored `.secrets/` credentials, and starts
+three containers. `MAAT_DOCKER_ARCH=arm64` or `amd64` can override architecture
+detection. Initial bootstrap is automatic: node `a` seeds Raft, and a committed
+fresh-storage decision authorizes the initial database primary `a`.
+
+Each node has separate database and control volumes. PostgreSQL data lives at
+`/var/lib/maat/postgres/data`, beneath its volume root so recovery can rename it
+atomically. Raft and recovery journals live under `/var/lib/maat/control`.
+The supervisor starts only the agent; the agent decides whether PostgreSQL can
+start. An agent crash is restarted without stopping an already-running database.
+
+**Container IDs are persisted membership identities. Never recreate containers
+against surviving volumes.** Re-running `make compose-up` after an image/config
+change, `docker compose up --force-recreate`, or `docker compose down` followed by
+`up` can change those IDs and is not a supported upgrade/recovery path. Membership
+replacement and in-place upgrades need a separate workflow. Do not erase Raft
+state to work around an identity mismatch.
+
+For an existing lab, preserve the containers and volumes:
+
+```sh
+docker compose stop
+docker compose start
+```
+
+Ordinary cleanup is `docker compose stop`; it does not delete volumes. Retain
+both PostgreSQL and control storage when investigating failures or rolling back.
+The previous startup-only binary cannot operate or recover the HA cluster.
+
+## Observe and exercise the cluster
+
+Host ports bind only to loopback:
+
+| Node | PostgreSQL | Read-only status |
+| --- | --- | --- |
+| a | `127.0.0.1:15432` | `http://127.0.0.1:18080/status` |
+| b | `127.0.0.1:15433` | `http://127.0.0.1:18081/status` |
+| c | `127.0.0.1:15434` | `http://127.0.0.1:18082/status` |
+
+```sh
+curl -fsS http://127.0.0.1:18080/status | python3 -m json.tool
+docker compose exec -T --user postgres a maat status --config /etc/maat/config.json
+docker compose exec -T --user postgres a psql \
+  -h /var/lib/maat/control/postgres/socket -U postgres -d postgres \
+  -AtX -v ON_ERROR_STOP=1 -c 'SELECT pg_is_in_recovery();'
+```
+
+Status separates desired `state.Primary`/`state.Generation` from the observed
+`local.database` role, system identifier, timeline, WAL and replay positions,
+receiver, and upstream. It also exposes Raft leader/term, evidence age,
+reconciliation errors, recovery state, and durable `state.History`. A local
+status response or elected leader alone does not prove current quorum.
+
+The explicit integration runner injects failures into this dedicated lab and
+leaves marker rows as evidence. Begin with all three nodes healthy. It checks SQL
+roles, replay, container isolation, and transition history, then attempts normal
+rejoin. On failure it restores its stopped replicas/disconnected network; an old
+primary fenced during an incomplete transition remains stopped for inspection.
+
+```sh
+make integration                                      # primary process failure and rejoin
+python3 deploy/integration.py --scenario agent-restart
+python3 deploy/integration.py --scenario majority
+python3 deploy/integration.py --scenario partition
+python3 deploy/integration.py --scenario replica-process
+python3 deploy/integration.py --scenario replica-container
+python3 deploy/integration.py --scenario container
+python3 deploy/integration.py --scenario authorized-crash
+python3 deploy/integration.py --scenario all --timeout 120
+```
+
+These are lab fault-injection commands, not health checks. They never delete
+volumes. See [validation results](docs/validation.md) before interpreting coverage.
+
+Deterministic crash and competing-proposal tests use a separate binary whose
+filesystem pause hooks are excluded from normal builds. Each run creates fresh
+Compose projects with unique identities and loopback ports; it does not change
+`maat-dev`. The following cleanup flags explicitly remove only these newly
+created test projects and their disposable volumes. Without them, containers are
+stopped and storage is retained under the generated project names.
+
+```sh
+make fault-build
+python3 deploy/concurrent_transition.py --cleanup --timeout 150
+python3 deploy/transition_crashes.py --binary bin/maat-faults-linux --point all --mode crash --remove-test-volumes
+```
+
+Test configuration and credential files are generated under ignored `bin/`
+directories. Do not deploy the fault-enabled binary as the normal controller.
+
+## Recover an old primary or rebuild a replica
+
+After a completed failover, restart the same stopped container, for example
+`docker compose start a`. The guarded startup path keeps PostgreSQL stopped
+until current authority permits rejoin. Compatible replicas follow the new
+upstream; an old primary uses native `pg_rewind`, standby repair, and verification.
+
+Unsafe, failed, or interrupted recovery reports `reinitialization_required`.
+There is no automatic data replacement. Inspect status and resolve its cause;
+if rebuilding is intended, read the current `raft_leader`, `state.Generation`,
+and `state.Primary`. Run the following on the current leader, using the current
+generation and a target that is **not** the authorized primary. This example
+assumes leader `b`, target `a`, and generation `2`:
+
+```sh
+docker compose exec -T --user postgres b maat reinitialize \
+  --config /etc/maat/config.json --node a --generation 2 --ack-data-replacement
+```
+
+The local socket is protected by filesystem permissions. A follower rejects the
+request with the leader identity; repeat on that leader after checking current
+state. A successful response means the request was committed, not that recovery
+finished. Watch the target's recovery state and verify a streaming replica with
+the expected system identity, upstream, and replay position. Stale generations,
+a primary target, an active failover, or unavailable quorum block the request.
+
+Rebuild validates paths, identity, stopped state, source, and available space;
+it retains old data as `/var/lib/maat/postgres/data.retained-<request-id>` and
+prepares a native base backup in a sibling staging directory. Recovery journals
+allow supported rename/selection steps to resume. Retained and partial directories
+are never automatically deleted. Inspect and back them up before any deliberate
+operator cleanup; do not remove directories referenced by an active recovery
+journal. A failed committed rebuild may require another explicit request.
+
+## Trust boundaries and limits
+
+The Docker socket grants powerful host control. Use only a trusted local lab.
+Fencing assumes a trusted Docker daemon, no external container restarts, and
+exclusive use of the managed PostgreSQL startup path. Stop API success, a failed
+TCP connection, pause, a missing container, or an unreachable daemon is not
+verified isolation. Loss of Docker access blocks automatic failover. Docker
+fencing on one host does not provide independent hardware fencing or host-failure
+survival.
+
+The Compose network and host-loopback status ports are unauthenticated. Raft and
+agent HTTP transport have no TLS or node authentication. The local administrative
+socket has OS permissions, not application-level administrative authorization.
+The development controller uses PostgreSQL superuser credentials for control
+and rewind; ordinary physical replication uses `maat_repl`. Secrets are generated
+in ignored `.secrets/` files and copied to PostgreSQL-owned `0600` files under
+`/run/maat`; do not commit or print them. The socket's existing group permissions
+are used without making it world-accessible.
+
+Dynamic membership, container replacement, multi-host fencing, synchronous
+replication, maintenance/drain controls, ranking the most advanced candidate,
+production authentication/authorization, and metrics are deferred. Complete
+specification section 34 coverage is still required before a production claim.
+
+## Development checks
+
+```sh
+make fmt
+make test
+make vet
+make build
+go test -race ./...
+# Explicit native integration: PostgreSQL 18 tools on PATH, non-root OS user,
+# and free local ports 16541 and 16542 are required.
+MAAT_PG_INTEGRATION=1 go test ./internal/postgres -run TestNativeLifecycle -count=1 -v
+```
+
+The native lifecycle test is skipped unless explicitly enabled. `make run` invokes
+`go run .` and shows CLI usage without arguments; use
+`go run . run --config PATH` only in a correctly configured node environment.
+`make clean` removes `bin/maat`; it leaves lab storage untouched.
 
 | Path | Contents |
 | --- | --- |
-| `main.go` | Initial executable entry point |
-| `go.mod` | Go module and toolchain requirement |
-| `Makefile` | Build, run, format, test, and vet commands |
-| `docs/Custom PostgreSQL HA Controller — Technical Specification.md` | Target design and failure scenarios |
-| `AGENTS.md` | Repository guidance for coding agents |
+| [internal/agent](internal/agent) | Configuration, eligibility, reconciliation, status and local administration |
+| [internal/cluster](internal/cluster) | Durable Raft state and transitions |
+| [internal/postgres](internal/postgres) | Native lifecycle, replication, rewind and retained-directory rebuild |
+| [internal/fencing](internal/fencing) | Replaceable fencing contract and Docker adapter |
+| [deploy](deploy) | Node configurations, supervisor, credentials and integration scenarios |
+| [docs/validation.md](docs/validation.md) | Recorded checks and specification section 34 gaps |
 
-See [AGENTS.md](AGENTS.md) for implementation constraints and validation guidance.
+See [AGENTS.md](AGENTS.md) for repository safety constraints.

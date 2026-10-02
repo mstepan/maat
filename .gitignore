@@ -1,1 +1,3 @@
 /bin/
+.secrets/
+__pycache__/

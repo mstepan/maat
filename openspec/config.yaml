@@ -7,10 +7,28 @@ context: |
   specification defines the target architecture, MVP, safety invariants, and
   failure scenarios. Identify unresolved policies rather than inventing guarantees.
 
-  Current implementation: module maat, Go 1.27.1 or newer, a main.go that only
-  prints a startup message, and a Makefile. No HA components, dependencies,
-  configuration interface, or tests exist yet. Distinguish planned behavior from
-  implemented features and keep README.md consistent with the specification.
+  Current implementation: module maat, Go 1.27.1 or newer, with a three-node
+  PostgreSQL 18 Compose development controller. Packages implement strict JSON
+  configuration and CLI commands, HashiCorp Raft with durable BoltDB state and
+  snapshots, fixed membership and immutable Docker identities, bounded Docker
+  fencing and separate verification, PostgreSQL-native lifecycle/replication,
+  explicit failover transitions, journaled rewind and operator-approved rebuild
+  retaining old data, read-only status, and a protected local admin socket.
+  The supervisor restarts agents without automatically starting PostgreSQL.
+  Current candidate policy is leader-local with fresh evidence and bounded lag;
+  PostgreSQL timeline and HA generation remain distinct. Never recreate a
+  container against surviving identity-bound volumes. Dynamic membership and
+  container replacement are not implemented. Unit, race, real durable Raft and
+  native PostgreSQL lifecycle checks exist; deploy/integration.py provides
+  explicit Compose fault scenarios. Test-only build-tagged hooks validate 17 exact
+  transition crash boundaries, six quorum-loss windows, six leadership-change
+  windows, and competing proposals; normal builds exclude fault injection.
+  Consult docs/validation.md for recorded
+  results and remaining gaps. Six real Compose fault scenarios and an explicit
+  operator rebuild passed in the initial implementation session; this does not
+  establish exhaustive production failure coverage or lossless HA.
+  Distinguish implemented behavior from validated scenarios and future features;
+  keep README.md consistent with the specification and actual code.
 
   Target architecture: one Go agent beside each PostgreSQL instance, initially
   three nodes. Agents form the control plane using HashiCorp Raft with durable

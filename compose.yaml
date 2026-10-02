@@ -1,0 +1,69 @@
+name: maat-dev
+
+x-node: &node
+  build:
+    context: .
+  init: true
+  restart: "no"
+  stop_grace_period: 30s
+  secrets:
+    - postgres-password
+    - replication-password
+
+services:
+  a:
+    <<: *node
+    hostname: a
+    labels:
+      maat.cluster: maat_dev
+      maat.node: a
+    volumes:
+      - a-data:/var/lib/maat/postgres
+      - a-control:/var/lib/maat/control
+      - ./deploy/a.json:/etc/maat/config.json:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:15432:5432"
+      - "127.0.0.1:18080:8000"
+  b:
+    <<: *node
+    hostname: b
+    labels:
+      maat.cluster: maat_dev
+      maat.node: b
+    volumes:
+      - b-data:/var/lib/maat/postgres
+      - b-control:/var/lib/maat/control
+      - ./deploy/b.json:/etc/maat/config.json:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:15433:5432"
+      - "127.0.0.1:18081:8000"
+  c:
+    <<: *node
+    hostname: c
+    labels:
+      maat.cluster: maat_dev
+      maat.node: c
+    volumes:
+      - c-data:/var/lib/maat/postgres
+      - c-control:/var/lib/maat/control
+      - ./deploy/c.json:/etc/maat/config.json:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:15434:5432"
+      - "127.0.0.1:18082:8000"
+
+volumes:
+  a-data:
+  a-control:
+  b-data:
+  b-control:
+  c-data:
+  c-control:
+
+secrets:
+  postgres-password:
+    file: ./.secrets/postgres-password
+  replication-password:
+    file: ./.secrets/replication-password

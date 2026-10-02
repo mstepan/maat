@@ -29,7 +29,7 @@ func (a *Runtime) adminServer(serveErrors chan<- error) (*http.Server, error) {
 			return nil, errors.New("admin socket path is not a socket")
 		}
 		if c, e := net.DialTimeout("unix", path, time.Second); e == nil {
-			c.Close()
+			_ = c.Close() // The live socket already proves another agent owns it.
 			return nil, errors.New("another agent already owns the admin socket")
 		}
 		if e = os.Remove(path); e != nil {
@@ -43,8 +43,7 @@ func (a *Runtime) adminServer(serveErrors chan<- error) (*http.Server, error) {
 		return nil, e
 	}
 	if e = os.Chmod(path, 0600); e != nil {
-		listener.Close()
-		return nil, e
+		return nil, errors.Join(e, listener.Close())
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /status", a.statusHTTP)
@@ -85,18 +84,18 @@ func (a *Runtime) reinitializeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !a.store.IsLeader() {
-		http.Error(w, "run this local command on Raft leader "+a.store.LeaderID(), 409)
+		http.Error(w, "run this local command on Raft leader "+a.store.LeaderID(), http.StatusConflict)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), a.cfg.Timeout())
 	defer cancel()
 	s, e := a.store.LinearizableState(ctx)
 	if e != nil {
-		http.Error(w, "quorum authority unavailable", 503)
+		http.Error(w, "quorum authority unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	if e = validateReinitialize(s, req); e != nil {
-		http.Error(w, e.Error(), 409)
+		http.Error(w, e.Error(), http.StatusConflict)
 		return
 	}
 	if pending, ok := s.Reinitializations[req.NodeID]; ok && pending.Generation == s.Generation {
@@ -109,7 +108,7 @@ func (a *Runtime) reinitializeHTTP(w http.ResponseWriter, r *http.Request) {
 	id := newID()
 	e = a.command(ctx, s, "reinitialize", func(c *cluster.Command) { c.TransitionID = id; c.NodeID = req.NodeID })
 	if e != nil {
-		http.Error(w, "recovery request could not be committed", 503)
+		http.Error(w, "recovery request could not be committed", http.StatusServiceUnavailable)
 		return
 	}
 	writeJSON(w, map[string]string{"request_id": id, "status": "committed"})
@@ -140,7 +139,7 @@ func Control(ctx context.Context, c Config, path string, body any, out io.Writer
 	if e != nil {
 		return errors.New("local agent unavailable; run the command inside the target node as postgres")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }() // Read errors are handled below.
 	b, e := io.ReadAll(io.LimitReader(response.Body, 1024*1024))
 	if e != nil {
 		return e

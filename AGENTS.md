@@ -91,14 +91,14 @@ Use the existing commands from the repository root:
 
 ```sh
 make fmt    # format changed Go code
-make test   # run Go tests
-make vet    # check for common mistakes
+make test   # run Go tests, race tests with fault hooks, and Python unit tests
+make lint   # run golangci-lint
 make build  # build bin/maat
 make run    # run the current entry point
-make clean  # remove bin/maat
+make clean  # remove the entire bin/ directory
 ```
 
-For Go changes, run formatting and relevant tests, vet, and build before claiming
+For Go changes, run formatting and relevant tests, lint, and build before claiming
 completion. Add focused regression checks for changed safety or transition logic.
 Report checks that could not run and their reasons; do not present an empty test
 suite as validation of HA behavior. For documentation-only changes, verify local

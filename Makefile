@@ -1,6 +1,6 @@
-.PHONY: build run test fmt vet clean all
+.PHONY: all build run test fmt lint clean
 
-all: clean fmt vet build test integration
+all: clean fmt lint build test integration
 
 build:
 	mkdir -p bin
@@ -11,16 +11,17 @@ run:
 
 test:
 	go test ./...
+	go test -race -tags maat_faults ./...
 	python3 -m unittest discover -s deploy -p 'test_*.py'
 
 fmt:
 	go fmt ./...
 
-vet:
-	go vet ./...
+lint:
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...
 
 clean:
-	rm -f bin/maat
+	rm -rf bin
 
 .PHONY: linux-build docker-build compose-up compose-down compose-clean integration
 MAAT_DOCKER_ARCH ?= $(shell docker version --format '{{.Server.Arch}}')

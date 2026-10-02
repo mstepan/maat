@@ -47,7 +47,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // Read-only configuration; parse errors are handled below.
 	config, err := agent.ReadConfig(f)
 	if err != nil {
 		return err

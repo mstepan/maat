@@ -250,7 +250,7 @@ func (f *fsm) Snapshot() (raft.FSMSnapshot, error) {
 	return snapshot(b), err
 }
 func (f *fsm) Restore(r io.ReadCloser) error {
-	defer r.Close()
+	defer func() { _ = r.Close() }() // Read and snapshot validation errors are handled below.
 	b, err := io.ReadAll(io.LimitReader(r, 64<<20))
 	if err != nil {
 		return err

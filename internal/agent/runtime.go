@@ -66,7 +66,7 @@ func newID() string {
 	}
 	return hex.EncodeToString(b[:])
 }
-func Run(ctx context.Context, c Config) error {
+func Run(ctx context.Context, c Config) (err error) {
 	node, _ := c.Node(c.ID)
 	_, port, _ := net.SplitHostPort(node.PostgresAddress)
 	p, _ := strconv.Atoi(port)
@@ -114,7 +114,7 @@ func Run(ctx context.Context, c Config) error {
 	if e != nil {
 		return e
 	}
-	defer store.Close()
+	defer func() { err = errors.Join(err, store.Close()) }()
 	a := &Runtime{cfg: c, store: store, pg: pg, fence: d, docker: d, targets: targets, incarnation: newID(), http: &http.Client{Timeout: c.Timeout()}, samples: map[string]sample{}, primaryEvidence: map[string]Evidence{}, failures: map[string]int{}, coldStart: true}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /observation", a.observeHTTP)
@@ -127,12 +127,12 @@ func Run(ctx context.Context, c Config) error {
 	}
 	serveErrors := make(chan error, 2)
 	go func() { serveErrors <- server.Serve(listen) }()
-	defer server.Close()
+	defer func() { err = errors.Join(err, server.Close()) }()
 	admin, e := a.adminServer(serveErrors)
 	if e != nil {
 		return e
 	}
-	defer admin.Close()
+	defer func() { err = errors.Join(err, admin.Close()) }()
 	tick := time.NewTicker(time.Duration(c.ObservationIntervalSeconds) * time.Second)
 	defer tick.Stop()
 	for {
@@ -239,7 +239,7 @@ func (a *Runtime) get(ctx context.Context, address, path string, out any) error 
 	if e != nil {
 		return errors.New("agent request unavailable")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // Decode errors are handled below.
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("agent request returned status %d", resp.StatusCode)
 	}
@@ -265,7 +265,7 @@ func (a *Runtime) authority(ctx context.Context) (cluster.State, error) {
 	leader := a.store.LeaderID()
 	n, ok := a.cfg.Node(leader)
 	if !ok {
-		return cluster.State{}, errors.New("Raft leader unknown")
+		return cluster.State{}, errors.New("raft leader unknown")
 	}
 	var s cluster.State
 	e := a.get(ctx, n.HTTPAddress, "/authority", &s)

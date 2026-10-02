@@ -94,7 +94,7 @@ func New(cfg Config) (*Controller, error) {
 	}
 	c := &Controller{cfg: cfg, connections: make(chan struct{}, 8)}
 	if len(c.socketDir()) > 90 {
-		return nil, errors.New("Unix socket directory path is too long")
+		return nil, errors.New("unix socket directory path is too long")
 	}
 	if err := os.MkdirAll(c.socketDir(), 0700); err != nil {
 		return nil, err
@@ -132,7 +132,7 @@ func ParseLSN(s string) (uint64, error) {
 			return 0, errors.New("invalid PostgreSQL LSN")
 		}
 		for _, r := range p {
-			if !(r >= '0' && r <= '9' || r >= 'A' && r <= 'F' || r >= 'a' && r <= 'f') {
+			if (r < '0' || r > '9') && (r < 'A' || r > 'F') && (r < 'a' || r > 'f') {
 				return 0, errors.New("invalid PostgreSQL LSN")
 			}
 		}
@@ -149,7 +149,7 @@ func (c *Controller) validUpstream(u Upstream) error {
 		return errors.New("invalid upstream identity")
 	}
 	for _, r := range u.Host {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == ':' || r == '_') {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '.' && r != '-' && r != ':' && r != '_' {
 			return errors.New("invalid upstream host")
 		}
 	}

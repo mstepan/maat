@@ -84,8 +84,7 @@ func syncDir(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return f.Sync()
+	return errors.Join(f.Sync(), f.Close())
 }
 func atomicWrite(path string, data []byte) error {
 	if st, err := os.Lstat(path); err == nil && !st.Mode().IsRegular() {
@@ -98,7 +97,7 @@ func atomicWrite(path string, data []byte) error {
 		return err
 	}
 	name := f.Name()
-	defer os.Remove(name)
+	defer func() { _ = os.Remove(name) }() // Best-effort cleanup; rename removes this path on success.
 	if err = f.Chmod(0600); err == nil {
 		_, err = f.Write(data)
 	}
@@ -136,7 +135,7 @@ func (c *Controller) readJournal() (journal, error) {
 	if err != nil {
 		return j, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // Read-only journal; decode errors are handled below.
 	d := json.NewDecoder(f)
 	d.DisallowUnknownFields()
 	if err = d.Decode(&j); err != nil {
@@ -232,7 +231,7 @@ func identifier(s string) bool {
 		return false
 	}
 	for _, r := range s {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' && r != '-' {
 			return false
 		}
 	}

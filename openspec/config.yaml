@@ -69,7 +69,7 @@ context: |
   Implementation: prefer existing code and the standard library; add dependencies
   only for concrete needs. Preserve the fencing abstraction. Component/interface
   examples are guidance, not a requirement to scaffold unused packages.
-  For Go changes run make fmt, make test, make vet, and make build. Other existing
+  For Go changes run make fmt, make test, make lint, and make build. Other existing
   commands are make run and make clean. An empty test suite does not validate HA.
   Specification section 34 failure scenarios must pass before claiming automatic
   failover is production-ready; never claim lossless asynchronous failover.
@@ -91,5 +91,5 @@ rules:
   tasks:
     - Order small, verifiable tasks by dependency; avoid speculative scaffolding.
     - Include focused regression checks for changed safety and transition logic, with applicable failure and crash scenarios.
-    - Include make fmt, make test, make vet, and make build for Go changes; report unavailable checks and their reasons.
+    - Include make fmt, make test, make lint, and make build for Go changes; report unavailable checks and their reasons.
     - Include README.md updates when implemented behavior changes; for documentation-only changes verify local links, Makefile commands, and consistency with the specification and code.

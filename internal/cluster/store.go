@@ -37,7 +37,7 @@ func Start(c Config) (*Store, error) {
 	c.Nodes = append([]Node(nil), c.Nodes...)
 	sort.Slice(c.Nodes, func(i, j int) bool { return c.Nodes[i].ID < c.Nodes[j].ID })
 	if c.ID == "" || c.ClusterID == "" || c.Dir == "" || c.Bind == "" || len(c.Nodes) != 3 {
-		return nil, errors.New("Raft requires identity, storage, bind address and exactly three nodes")
+		return nil, errors.New("raft requires identity, storage, bind address and exactly three nodes")
 	}
 	ids := map[string]bool{}
 	addrs := map[string]bool{}

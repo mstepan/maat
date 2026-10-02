@@ -230,7 +230,7 @@ func (d *Docker) request(ctx context.Context, method, path string, out any) erro
 		}
 		return errors.New("Docker daemon request failed")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }() // Read errors are handled below.
 	if method == http.MethodPost && (response.StatusCode == 204 || response.StatusCode == 304) {
 		return nil
 	}

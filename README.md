@@ -64,6 +64,8 @@ promotion; the integration runner checkpoints and verifies timeline alignment.
 ## Start a fresh development lab
 
 Requires Go 1.27.1 or newer, Docker Engine with Compose, Python 3, and OpenSSL.
+`make lint` runs golangci-lint v2.14.0 through Go, locally and in CI. The first run
+downloads and builds the tool into Go's caches; no separate installation is needed.
 Docker API versions 1.44–1.54 are supported through version negotiation. Docker
 must expose its socket at `/var/run/docker.sock`. The image is pinned to
 PostgreSQL 18 Bookworm by digest in [Dockerfile](Dockerfile).
@@ -73,7 +75,7 @@ Run from the repository root, with no existing `maat-dev` cluster or old volumes
 ```sh
 make fmt
 make test
-make vet
+make lint
 make build
 make compose-up
 ```
@@ -256,18 +258,20 @@ specification section 34 coverage is still required before a production claim.
 
 ## Development checks
 
-The [GitHub Actions CI workflow](.github/workflows/ci.yml) runs on pushes, pull
+The [GitHub Actions CI workflow](.github/workflows/maat-ci.yaml) runs on pushes, pull
 requests, and manual dispatch. It checks Go formatting, runs tests plus race tests
-with the test-only fault hooks, vets the code, and builds using the Go version in
+with the test-only fault hooks, runs golangci-lint, and builds using the Go version in
 `go.mod`. Native PostgreSQL lifecycle and Docker Compose fault scenarios remain
 explicit local checks; CI does not exercise them.
+
+`make test` runs Go unit tests, Go tests with the race detector and fault hooks,
+and the Python deployment-script unit tests.
 
 ```sh
 make fmt
 make test
-make vet
+make lint
 make build
-go test -race ./...
 # Explicit native integration: PostgreSQL 18 tools on PATH, non-root OS user,
 # and free local ports 16541 and 16542 are required.
 MAAT_PG_INTEGRATION=1 go test ./internal/postgres -run TestNativeLifecycle -count=1 -v
@@ -276,7 +280,7 @@ MAAT_PG_INTEGRATION=1 go test ./internal/postgres -run TestNativeLifecycle -coun
 The native lifecycle test is skipped unless explicitly enabled. `make run` invokes
 `go run .` and shows CLI usage without arguments; use
 `go run . run --config PATH` only in a correctly configured node environment.
-`make clean` removes `bin/maat`; it leaves lab storage untouched.
+`make clean` removes the entire `bin/` directory, including generated test files; it leaves Docker volumes untouched.
 
 | Path | Contents |
 | --- | --- |

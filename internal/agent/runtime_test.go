@@ -17,7 +17,7 @@ func TestRestartedAgentCannotReuseRetainedPrimaryEvidence(t *testing.T) {
 	phase := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if phase == 1 {
-			http.Error(w, "offline", 503)
+			http.Error(w, "offline", http.StatusServiceUnavailable)
 			return
 		}
 		o := Observation{NodeID: "a", ClusterID: "test", ContainerID: "container", Incarnation: "old", Generation: 1, Database: postgres.Observation{Healthy: true, SystemID: "123", Timeline: 1, FlushLSN: 100}}

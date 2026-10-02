@@ -24,6 +24,24 @@ func TestLSNStrict(t *testing.T) {
 	}
 }
 
+func TestValidationCharacterSets(t *testing.T) {
+	c := &Controller{cfg: Config{NodeID: "a", Peers: []string{"a", "b"}}}
+	for r := rune(0); r < 256; r++ {
+		s := string(r)
+		if got, want := identifier(s), strings.ContainsRune("abcdefghijklmnopqrstuvwxyz0123456789_-", r); got != want {
+			t.Errorf("identifier(%q) = %v, want %v", s, got, want)
+		}
+		u := Upstream{Host: s, Port: 5432, NodeID: "b", SystemID: "123"}
+		if got, want := c.validUpstream(u) == nil, strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:_", r); got != want {
+			t.Errorf("upstream host %q accepted = %v, want %v", s, got, want)
+		}
+		_, err := ParseLSN(s + "/0")
+		if got, want := err == nil, strings.ContainsRune("0123456789ABCDEFabcdef", r); got != want {
+			t.Errorf("LSN character %q accepted = %v, want %v", s, got, want)
+		}
+	}
+}
+
 func configForTest(t *testing.T) Config {
 	t.Helper()
 	tmp, err := os.MkdirTemp("/tmp", "maat-pg-")

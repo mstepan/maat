@@ -12,32 +12,53 @@ real durable Raft restart/leadership-transfer/quorum tests, FSM snapshot restore
 at every transition phase, and the explicitly enabled PostgreSQL 18 native
 lifecycle test. Eight ordinary Compose scenarios, a real competing-proposal test,
 29 deterministic transition cases, and an explicit operator rebuild passed.
-Final `make fmt`, `make test`, `make vet`, `make build`, and
-`go test -race ./...` passed after the latest test changes. Compose configuration
+At that stage, `make fmt`, `make test`, the then-existing `make vet`, `make build`,
+and `go test -race ./...` were recorded as passing. Compose configuration
 and image build, strict OpenSpec validation, local documentation links, and
 checks excluding actual secret values from tracked content also passed. The
 original six-scenario sequence passed together; the two additional replica
 scenarios passed separately. Final normal/tagged Go race checks and the native
 PostgreSQL lifecycle test were rerun after adding the deterministic fault hooks.
 
+These are historical results, not fresh validation of later commits. The current
+Makefile replaces `make vet` with `make lint`, includes tagged race and Python
+checks in `make test`, and runs the isolated smoke runner via `make integration`.
+For significant codebase changes, execute `make integration` as required by
+[AGENTS.md](../AGENTS.md), plus the scenarios affected by the change. The smoke
+target does not execute the full matrix. Documentation-only edits require link,
+command, and spec/code consistency checks rather than fault injection.
+
 | Check | Command or evidence | Scope and limitation |
 | --- | --- | --- |
-| Go unit tests | `make test` | FSM, candidate policy, strict config, administrative validation, guarded recovery and Docker adapter tests. Native PostgreSQL lifecycle is skipped by default. |
-| Race detector | `go test -race ./...` | Go concurrency paths exercised by the test suite; not a proof against every distributed race. |
+| Unit and script tests | `make test` | Normal Go tests, tagged race tests, and Python runner-isolation/cleanup tests. Native PostgreSQL lifecycle is skipped by default. |
+| Race detector | `go test -race -tags maat_faults ./...` (included in `make test`); `go test -race ./...` for normal builds | Go concurrency paths exercised by the test suite; not a proof against every distributed race. |
+| Current static checks/build | `make fmt`; `make lint`; `make build` | Formatting, pinned golangci-lint, and the local binary build. Historical vet results above do not establish a current lint pass. |
 | Real Raft | `go test ./internal/cluster -run TestDurableRaftRestartTransferAndQuorum -count=1 -v` | Three TCP Raft nodes, BoltDB persistence, restart, leadership transfer and quorum loss. No PostgreSQL processes in this test. |
 | Native PostgreSQL | `MAAT_PG_INTEGRATION=1 go test ./internal/postgres -run TestNativeLifecycle -count=1 -v` | PostgreSQL 18 tools, non-root user, ports 16541/16542. Real primary/replica, marker replay, promotion, crash recovery, rewind, retained rebuild, failed-rebuild retry and selected rename crash boundaries. No three-agent Docker coordination. |
 | Docker adapter | `go test -race ./internal/fencing` | Real HTTP test servers and Unix socket transport; version negotiation, timeouts, API errors, exact identity, replacement, restart policy and separate stop verification. Synthetic daemon responses do not establish real container isolation. |
 | Deployment assets | `sh -n deploy/entrypoint.sh deploy/prepare.sh`; `docker compose config --quiet` | Syntax/configuration passed. Credential-generation checks covered restrictive modes, no printed values, repeated preparation and symlink rejection. |
-| Integration runners | `deploy/integration.py`, `deploy/transition_crashes.py`, `deploy/concurrent_transition.py` | Eight ordinary cases, 29 deterministic cases and overlapping proposals passed; Python syntax was checked. |
+| Integration runners | `make integration` / `deploy/run_integration.py`; `deploy/transition_crashes.py`; `deploy/concurrent_transition.py` | The isolated wrapper runs smoke by default, or eight ordinary cases with `--scenario all`. Historical evidence below covers the underlying scenarios; deterministic cases and overlapping proposals use separate runners. |
 
 The tests live in [cluster](../internal/cluster), [agent](../internal/agent),
 [postgres](../internal/postgres), and [fencing](../internal/fencing).
 
 ## Compose suite results
 
-The [runner](../deploy/integration.py) assumes the dedicated `maat-dev` cluster
-exists and all three nodes converge to healthy state. It never removes volumes
-or recreates containers. It validates project/node labels and pins full container
+The supported entry point, `make integration`, builds the Linux agent and invokes
+[the isolated runner](../deploy/run_integration.py). Each invocation creates a
+fresh `maat-integration-<unique-id>` project with separate identities, credentials,
+volumes, network, and dynamic loopback status ports. It runs smoke by default and
+stops its own containers afterward, retaining volumes and generated `bin/` assets.
+After `make linux-build`, use `python3 deploy/run_integration.py --scenario all`
+to run all eight ordinary cases. No existing `maat-dev` cluster is needed or
+modified by this wrapper.
+
+The historical commands in the table below used the lower-level
+[scenario runner](../deploy/integration.py), which targets the existing
+`maat-dev` lab directly. Run them only when injecting failures into that lab is
+intended; use `deploy/run_integration.py` with the same scenario arguments for
+a fresh isolated run. The scenario runner requires all three nodes to converge
+before each case, never removes volumes or recreates containers, and pins container
 IDs before injecting faults. Database checks use actual SQL roles, system IDs,
 upstream/receiver state, and replayed markers. Failover checks require a stopped
 old container when observing a replacement writer and verify persisted transition
@@ -161,7 +182,9 @@ coverage of all timings or production fault models.
 | Agent crash before Raft state update | Real SIGKILL immediately before each of the six failover commands passed, alongside snapshot/CAS regressions. | Arbitrary interruption inside Raft storage writes. |
 | Agent crash after Raft state update | Real SIGKILL immediately after each of the six committed failover commands passed. | Power loss before storage-device flush completion. |
 
-All development tasks in this OpenSpec change are complete. The deterministic
+The [archived initial change](../openspec/changes/archive/2026-10-02-initial-compose-ha-controller/tasks.md)
+records its development tasks as complete. This is not a claim that every target
+requirement or later change is fully validated. The deterministic
 cases cover the named transition boundaries and competing proposals; they do not
 exhaust every instruction-level interleaving or production failure model. The
 remaining validation column continues to identify those broader limitations.
@@ -182,3 +205,13 @@ remaining validation column continues to identify those broader limitations.
 - The leader-local asynchronous candidate policy can lose committed transactions;
   observed lag cannot determine final transaction loss. Strict freshness can block
   failover indefinitely instead of inventing fresh evidence.
+- Candidate eligibility compares observed timeline IDs, not parsed history;
+  broader timeline-ancestry policies are not implemented. Native PostgreSQL tools
+  handle history/WAL validation during recovery.
+- An unfinished transition waits for its original candidate. FSM unit tests cover
+  fencing an uncertain authorized writer before replacement, but the reconciler
+  does not automatically initiate that replacement workflow.
+- Status reports leader/term and last quorum/reconciliation timestamps, but lacks
+  a full Raft role enum, separate last-successful-health timestamp, and durable
+  history of failed health/fencing attempts. Database observation health alone
+  does not prove streaming/replay readiness.

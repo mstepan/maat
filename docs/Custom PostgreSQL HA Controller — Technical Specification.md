@@ -1,5 +1,15 @@
 # Custom PostgreSQL HA Controller
 
+This document defines the architecture and safety requirements. The repository
+now implements a fixed three-node PostgreSQL 18 Compose development controller
+using HashiCorp Raft, durable BoltDB state, native PostgreSQL tools, and Docker
+fencing. It is not production-ready. See [README](../README.md) for current
+commands and scope, [OpenSpec capabilities](../openspec/specs) for concrete
+requirements and implementation notes, and [the validation record](validation.md)
+for tested scenarios and remaining gaps. Component/type examples below are
+conceptual, not declarations of the current Go API; dynamic membership,
+maintenance controls, production security, and metrics remain future work.
+
 ## 1. Objective
 
 Build a custom PostgreSQL HA controller similar in concept to Patroni, implemented in Go, without etcd.
@@ -125,7 +135,7 @@ The three agents collectively form the control plane through Raft.
 
 Use an existing Go Raft implementation.
 
-HashiCorp Raft is a candidate.
+The MVP uses HashiCorp Raft with durable BoltDB log/stable storage and file snapshots.
 
 Do not implement Raft from scratch.
 
@@ -155,9 +165,9 @@ PostgreSQL primary:
     A
 ```
 
-may be valid during a failover transition.
+is valid even outside a failover transition.
 
-Eventually:
+During a successful leader-local failover, they can converge to:
 
 ```text
 Raft leader:
@@ -168,6 +178,8 @@ PostgreSQL primary:
 ```
 
 The Raft leader is responsible for coordinating the transition, not automatically making its local PostgreSQL instance primary.
+There is no requirement to move a healthy PostgreSQL primary merely to match a
+new Raft leader.
 
 ---
 
@@ -231,7 +243,9 @@ Current primary = B.
 
 Therefore it must not become primary again.
 
-Generation prevents stale nodes from acting on old control-plane state.
+Generation checks help reject stale work when combined with current quorum
+authority, guarded PostgreSQL startup, and verified fencing. A generation number
+alone cannot stop an old primary from accepting writes.
 
 ---
 
@@ -456,7 +470,7 @@ Responsible for:
 - monitoring replication
 - deciding when a replica needs reinitialization
 - coordinating `pg_rewind`
-- triggering a new base backup when rewind is impossible
+- performing a new base backup after explicit operator approval when rewind is impossible
 
 It should not implement WAL streaming.
 
@@ -495,6 +509,8 @@ fence A
    ↓
 verify A cannot write
    ↓
+commit B's authorization and increment HA generation
+   ↓
 promote B
 ```
 
@@ -530,36 +546,25 @@ REPLICA -> PRIMARY
 
 Use explicit states.
 
-Example:
+The implemented durable transition phases are:
 
 ```text
-REPLICA
-   |
-   | primary failure detected
-   v
-CANDIDATE
-   |
-   | Raft authorization
-   v
-FENCING
-   |
-   | old primary fenced
-   v
-PROMOTING
-   |
-   v
-PRIMARY
+validating       # current leader/quorum and candidate checks
+    ↓
+fencing          # stop old writer, independently verify isolation, revalidate candidate
+    ↓
+authorized       # committed replacement and HA generation increment
+    ↓
+promoting        # promote under current authority, verify role/timeline
+    ↓
+reconfiguring    # verify remaining unfenced replicas
+    ↓
+complete
 ```
 
-Other states:
-
-```text
-DEMOTING
-REJOINING
-FAILED
-```
-
-The exact state machine can be refined during implementation.
+Database roles, local recovery-journal phases, and reconciliation errors are
+reported separately. A completed transition can leave the fenced old node
+stopped; full three-node health requires its subsequent verified rejoin.
 
 ---
 
@@ -610,7 +615,8 @@ B attempts to fence A.
 
 Do not continue solely because the fencing API returned success.
 
-Verify the fencing condition where possible.
+Independently verify the fencing condition. If isolation is uncertain, block
+authorization and promotion.
 
 ### Step 6 — Authorize new primary
 
@@ -722,7 +728,8 @@ actual:
     B = replica
 ```
 
-Action:
+Action, only within the committed resumable transition after current quorum,
+fencing, membership, and local-state checks:
 
 ```text
 promote B
@@ -791,7 +798,12 @@ Potential sequence:
 8. Mark A healthy.
 ```
 
-If `pg_rewind` cannot be used safely, discard/reinitialize the data directory through a fresh base backup.
+If `pg_rewind` cannot be used safely or fails, keep PostgreSQL stopped and report
+`reinitialization_required`. Replacing existing data requires a committed operator
+request with the target node, current generation, and explicit acknowledgement.
+Validate the stopped target, identity, paths, source, and free space; retain the
+old directory separately, take a native fresh base backup, and verify replication.
+Never discard data automatically because a health check or rewind failed.
 
 Final state:
 
@@ -852,7 +864,8 @@ A -> B
 
 and restart A as a replica.
 
-The controller must verify the prerequisites for `pg_rewind` and fall back to a fresh base backup when necessary.
+The controller must verify the prerequisites for `pg_rewind`; a necessary fresh
+base backup of existing data follows the explicit rebuild policy in section 20.
 
 ---
 
@@ -878,6 +891,12 @@ The controller should consider:
 - node maintenance/drain state
 
 A future implementation can rank eligible candidates based on these properties, but the initial implementation should keep policy simple and explicit.
+The current policy is leader-local, with leadership transfer to an eligible
+replica when needed. It requires equal observed timeline IDs, matching system
+identity, and fresh primary/candidate WAL evidence; it does not parse timeline
+history to admit candidates on different timelines. Defaults are a 16 MiB
+maximum observed lag and 30-second evidence age. Maintenance/drain controls
+and ranking by most advanced WAL position are not implemented.
 
 ---
 
@@ -976,7 +995,11 @@ B is not primary
 cluster state says transition is in progress
 ```
 
-and safely continue.
+and repeat the required checks. Before new authorization, missing or expired
+primary evidence blocks progress even after fencing. After committed
+authorization, resumption uses fresh local state and the recorded replay watermark
+with current authority and fencing checks; it does not require a new sample from
+the fenced primary.
 
 Another case:
 
@@ -985,7 +1008,7 @@ B promoted
     ↓
 agent crashes
     ↓
-before Raft state update
+before recording promotion verification/completion in Raft
 ```
 
 On restart, PostgreSQL says:
@@ -994,7 +1017,8 @@ On restart, PostgreSQL says:
 B = primary
 ```
 
-The agent must reconcile that against the Raft state.
+The agent must reconcile that against the Raft state. Primary authorization was
+already committed before promotion; only its verified outcome is pending.
 
 Another:
 
@@ -1006,7 +1030,12 @@ agent crashes
 before PostgreSQL promotion
 ```
 
-The next reconciliation should safely complete promotion.
+The next reconciliation may complete promotion only after the required current
+authority, fencing, and local-state checks. The current reconciler retains the
+original candidate during an unfinished transition and attempts to transfer
+leadership back to it. If it cannot return, progress blocks; the FSM's rule for
+fencing an uncertain candidate before replacement is not an implemented automatic
+replacement workflow.
 
 Therefore transitions should be represented as explicit, recoverable states rather than a single function call.
 
@@ -1015,6 +1044,9 @@ Therefore transitions should be represented as explicit, recoverable states rath
 # 27. Membership
 
 Raft membership and PostgreSQL membership should be coordinated but are not identical.
+Current membership is fixed at three voters with persisted immutable container
+identities. The add/remove flow below describes future work; container replacement
+against surviving volumes and online membership changes are unsupported.
 
 Adding a node involves:
 
@@ -1061,9 +1093,8 @@ and report/coordinate failover.
 
 The PostgreSQL instance should not automatically change role merely because its agent disappeared.
 
-This case needs explicit design.
-
-For the MVP, a reasonable safety policy is:
+The development supervisor restarts only the agent after an agent crash, leaving
+an already-running database in its existing role. The MVP policy is:
 
 - Agent failure does not immediately promote another PostgreSQL node unless the Raft cluster and fencing policy authorize it.
 - A node with no healthy agent should not be considered a safe promotion candidate.
@@ -1097,9 +1128,9 @@ C isolated
 
 No agent has Raft majority.
 
-The safe behavior is to avoid unilateral promotion unless an explicit, separately designed fencing/recovery procedure exists.
-
-This is a critical design decision.
+The current controller blocks new authority and promotion without quorum. An
+already-running primary can remain writable; there is no unilateral force-promotion
+or majority-loss override workflow.
 
 ---
 
@@ -1155,6 +1186,15 @@ last failover
 last fencing operation
 ```
 
+Current JSON status includes leader identity/boolean and term, last quorum
+confirmation, desired cluster state, local PostgreSQL observations, sampled lag
+and age, recovery state, last reconciliation error/success, and durable transition
+history. It does not expose a full Raft role enum, separate last-successful-health
+timestamp, or durable history of every failed fence/health probe.
+`local.database.healthy` indicates successful observation; replication readiness
+additionally requires receiver, upstream, and replay verification. These limits
+must remain explicit until the broader observability requirements are implemented.
+
 Metrics should eventually include:
 
 ```text
@@ -1204,11 +1244,15 @@ A fails
 
 B wins Raft
     ↓
+Validate B with current quorum and fresh evidence
+    ↓
 Fence A
+    ↓
+Verify A is isolated; revalidate B
     ↓
 Authorize B
     ↓
-Promote B
+Promote B and verify role/timeline
     ↓
 C follows B
     ↓

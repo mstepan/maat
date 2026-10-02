@@ -1,3 +1,10 @@
+> Archived completion record for the initial development implementation. Checked
+> tasks and their commands describe that session, not fresh validation of later
+> commits or exhaustive fulfillment of every safety scenario. The former
+> `make vet` target is now `make lint`; follow
+> [AGENTS.md](../../../../AGENTS.md), including `make integration` for significant
+> codebase changes, and [the validation record](../../../../docs/validation.md).
+
 ## 1. Runtime and configuration
 
 - [x] 1.1 Verify the required Go toolchain, Docker Engine/Compose, and PostgreSQL 18 image/tool availability; record compatible dependency and image pins without lowering the Go requirement.

@@ -19,16 +19,27 @@ context: |
   PostgreSQL timeline and HA generation remain distinct. Never recreate a
   container against surviving identity-bound volumes. Dynamic membership and
   container replacement are not implemented. Unit, race, real durable Raft and
-  native PostgreSQL lifecycle checks exist; deploy/integration.py provides
-  explicit Compose fault scenarios. Test-only build-tagged hooks validate 17 exact
+  native PostgreSQL lifecycle checks exist; make integration invokes
+  deploy/run_integration.py in a fresh isolated Compose project and runs the
+  primary-failure/rejoin smoke scenario. Its --scenario all option runs eight
+  ordinary cases. deploy/integration.py directly targets the existing maat-dev
+  lab. Default integration cleanup stops containers and retains volumes/assets.
+  Test-only build-tagged hooks exercise 17 exact
   transition crash boundaries, six quorum-loss windows, six leadership-change
   windows, and competing proposals; normal builds exclude fault injection.
   Consult docs/validation.md for recorded
-  results and remaining gaps. Six real Compose fault scenarios and an explicit
-  operator rebuild passed in the initial implementation session; this does not
+  results and remaining gaps. Eight ordinary Compose scenarios and an explicit
+  operator rebuild are recorded as passed in the implementation session (six
+  together, two replica cases separately); this does not
   establish exhaustive production failure coverage or lossless HA.
   Distinguish implemented behavior from validated scenarios and future features;
   keep README.md consistent with the specification and actual code.
+  Candidate checks require equal observed timeline IDs, not parsed history
+  comparison. An unfinished transition waits for its original candidate and
+  attempts leadership transfer back to it; automatic replacement of that
+  candidate is not implemented. Status exposes database observation health and
+  last successful reconciliation, not a standalone replication-readiness flag
+  or last-successful-health-check timestamp.
 
   Target architecture: one Go agent beside each PostgreSQL instance, initially
   three nodes. Agents form the control plane using HashiCorp Raft with durable
@@ -69,8 +80,13 @@ context: |
   Implementation: prefer existing code and the standard library; add dependencies
   only for concrete needs. Preserve the fencing abstraction. Component/interface
   examples are guidance, not a requirement to scaffold unused packages.
-  For Go changes run make fmt, make test, make lint, and make build. Other existing
-  commands are make run and make clean. An empty test suite does not validate HA.
+  For Go changes run make fmt, make test, make lint, and make build. For any
+  significant codebase change also execute make integration and relevant extra
+  fault scenarios; report unavailable checks and reasons. Documentation-only
+  changes require local-link, Makefile-command, and spec/code consistency checks.
+  make run shows CLI usage and exits nonzero without arguments. make clean removes
+  all bin/ assets. Bare make runs all, including clean and integration; use
+  explicit targets when those effects are not intended.
   Specification section 34 failure scenarios must pass before claiming automatic
   failover is production-ready; never claim lossless asynchronous failover.
 
@@ -91,5 +107,5 @@ rules:
   tasks:
     - Order small, verifiable tasks by dependency; avoid speculative scaffolding.
     - Include focused regression checks for changed safety and transition logic, with applicable failure and crash scenarios.
-    - Include make fmt, make test, make lint, and make build for Go changes; report unavailable checks and their reasons.
+    - Include make fmt, make test, make lint, and make build for Go changes; also execute make integration and relevant extra scenarios for significant codebase changes. Report unavailable checks and their reasons.
     - Include README.md updates when implemented behavior changes; for documentation-only changes verify local links, Makefile commands, and consistency with the specification and code.

@@ -1,3 +1,8 @@
+> Archived proposal: the context and proposed defaults below describe the
+> repository before this change was implemented. For current behavior and
+> commands, see [README](../../../../README.md) and the
+> [current capability specs](../../../specs).
+
 ## Why
 
 Maat currently prints a startup message. Developers need a runnable three-node

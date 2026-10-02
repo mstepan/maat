@@ -11,10 +11,15 @@ aligned with it and clearly distinguish planned behavior from implemented featur
 If a requirement is ambiguous, identify the unresolved policy rather than inventing
 a safety guarantee.
 
-The repository currently contains a minimal Go executable in `main.go`, module
-`maat`, and a `Makefile`. The executable only prints a startup message. There are
-no HA components, external dependencies, configuration interface, or tests yet.
-Go 1.27.1 or newer is required by `go.mod`.
+The repository implements a three-node PostgreSQL 18 Compose development
+controller in module `maat`. `main.go` provides `run`, `status`, and `reinitialize`
+commands with strict JSON configuration. `internal/agent`, `internal/cluster`,
+`internal/postgres`, and `internal/fencing` implement reconciliation, durable
+HashiCorp Raft/BoltDB state, native PostgreSQL lifecycle, and verified Docker
+fencing. Unit/race tests, native PostgreSQL lifecycle tests, and Compose fault
+runners exist; see [the validation record](docs/validation.md) for coverage and
+remaining gaps. This is not production-ready HA. Go 1.27.1 or newer is required
+by `go.mod`.
 
 ## Architecture and implementation scope
 
@@ -74,8 +79,9 @@ safe promotion candidate.
   configure replication credentials, `pg_hba.conf`, `primary_conninfo`, and slots
   as required. Verify WAL receiver and replay before declaring a replica healthy.
 - A returning old primary must first be prevented from accepting application
-  writes. Inspect timelines and `pg_rewind` prerequisites; rewind safely or use a
-  fresh base backup, configure the current primary as upstream, and verify rejoin.
+  writes. Inspect timelines and `pg_rewind` prerequisites; rewind safely or require
+  an explicit operator-approved rebuild before replacing existing data with a
+  fresh base backup. Configure the current primary as upstream and verify rejoin.
 - Treat replacement of a data directory as destructive recovery. Validate the
   target and prerequisites; do not discard data merely because a health check
   failed.
@@ -90,19 +96,31 @@ safe promotion candidate.
 Use the existing commands from the repository root:
 
 ```sh
-make fmt    # format changed Go code
-make test   # run Go tests, race tests with fault hooks, and Python unit tests
-make lint   # run golangci-lint
-make build  # build bin/maat
-make run    # run the current entry point
-make clean  # remove the entire bin/ directory
+make fmt          # format Go code
+make test         # run Go tests, race tests with fault hooks, and Python unit tests
+make lint         # run golangci-lint
+make build        # build bin/maat
+make integration  # run Compose primary-failure/rejoin smoke test in a fresh project
+make run          # show CLI usage; exits nonzero without command/config arguments
+make clean        # remove the entire bin/ directory, including generated test assets
 ```
 
 For Go changes, run formatting and relevant tests, lint, and build before claiming
 completion. Add focused regression checks for changed safety or transition logic.
+For any significant codebase change, also execute `make integration` before
+claiming completion. This includes changes to controller behavior, Raft state,
+fencing, PostgreSQL lifecycle/recovery, configuration, dependencies, deployment,
+or the integration harness. It requires Docker Engine/Compose and runs the smoke
+scenario in an isolated project; it does not run the full failure matrix. Run
+additional affected scenarios from [the validation record](docs/validation.md).
+Its default cleanup stops its containers and retains volumes and generated
+assets for inspection. Do not substitute `make test` for this integration check.
 Report checks that could not run and their reasons; do not present an empty test
 suite as validation of HA behavior. For documentation-only changes, verify local
 links, commands against the Makefile, and consistency with the spec and code.
+
+Bare `make` runs `all`, which includes `clean` and `integration`; use explicit
+targets when you do not intend to remove `bin/` or launch a fault-injection lab.
 
 Before calling automatic failover production-ready, validate all scenarios in
 specification section 34: process and machine failures, agent restarts, network

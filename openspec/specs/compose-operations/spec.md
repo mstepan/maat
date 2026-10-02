@@ -3,6 +3,19 @@
 ## Purpose
 Define the three-node development deployment, verified Docker fencing, local operator controls, status, and validation requirements.
 
+## Implementation notes
+
+Fresh bootstrap is configuration-driven through `maat run`; there is no separate
+bootstrap CLI command. `maat status` and `maat reinitialize` use the local Unix
+socket. Network endpoints are read-only and unauthenticated in this trusted lab.
+
+Status exposes `raft_is_leader`, `raft_leader`, `raft_term`,
+`quorum_last_confirmed_at`, `last_successful_reconcile`, local observations,
+reconciliation errors, recovery state, and committed transition history. A full
+Raft role enum, a separate last-successful-health timestamp, and durable history
+of failed health/fencing attempts remain gaps in the broader status requirement.
+Database observation health alone does not establish replication readiness.
+
 ## Requirements
 
 ### Requirement: Managed three-node development deployment
@@ -86,10 +99,19 @@ SHALL be explicit. Significant transition history SHALL survive restart.
 ### Requirement: Repeatable validation and honest readiness claims
 The change SHALL provide a fresh-cluster demonstration and focused regression
 tests for applicable technical-specification section 34 scenarios. It SHALL run
-the repository's formatting, tests, vet, and build checks for Go changes and
-record any unavailable checks. README SHALL distinguish implemented behavior,
+`make fmt`, `make test`, `make lint`, and `make build` for Go changes, and SHALL
+also execute `make integration` for significant codebase changes, with additional
+affected scenarios as needed. It SHALL record unavailable checks and reasons.
+README SHALL distinguish implemented behavior,
 validated scenarios, and deferred production requirements. Destructive volume
 deletion SHALL NOT be part of default demonstration cleanup.
+
+#### Scenario: Significant codebase change
+- **GIVEN** a significant change to controller behavior, Raft, fencing, PostgreSQL lifecycle, configuration, dependencies, deployment, or the integration harness
+- **WHEN** validation is performed before claiming completion
+- **THEN** `make integration` is executed in its fresh isolated Compose project
+- **AND** its primary-failure/rejoin smoke result is distinguished from additional ordinary or deterministic scenarios
+- **AND** unavailable tooling or failed checks are reported without claiming a pass
 
 #### Scenario: Development failover and rejoin demonstration
 - **GIVEN** fresh Compose volumes and available Docker/PostgreSQL tooling

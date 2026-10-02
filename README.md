@@ -5,12 +5,13 @@ beside each database; HashiCorp Raft and BoltDB persist primary authorization,
 HA generations, transitions, and recovery requests. PostgreSQL performs native
 asynchronous physical replication. No etcd or separate controller service is used.
 
-**Status: implemented development controller; not production-ready.** Unit, race,
-real Raft restart/quorum, and native PostgreSQL lifecycle tests have passed.
-The final six-scenario Compose sequence also passed, including primary process/container
-failures, agent restart, majority loss, a live-primary partition, and a candidate
-crash after authorization. The [validation matrix](docs/validation.md) records
-coverage and remaining gaps.
+**Status: implemented development controller; not production-ready.** The
+[validation record](docs/validation.md) reports unit/race, real Raft restart/quorum,
+and native PostgreSQL lifecycle checks, eight ordinary Compose scenarios,
+29 deterministic transition cases, a competing-proposal test, and an explicit
+operator rebuild. The original six ordinary scenarios passed together; the two
+replica scenarios passed separately. These are recorded implementation-session
+results, not a guarantee that every checkout or environment passes the matrix.
 Asynchronous failover can lose acknowledged transactions. The leader-local
 candidate policy does not necessarily choose the replica with the most WAL.
 
@@ -52,14 +53,22 @@ writer before committing replacement authorization, then verifies promotion and
 replica configuration. Without a majority, it does not grant new authority.
 An authorized candidate is a possible writer even when a promotion result is
 unknown, so replacing it requires fencing that candidate too.
+The FSM enforces that rule, but the reconciler currently resumes an unfinished
+transition only on its original candidate. A new leader attempts to transfer
+leadership back to that candidate; if it is unavailable, the transition blocks
+and retains authority. Automatic replacement of an unfinished candidate is not
+implemented.
 
 Defaults in [deploy/instance-a.json](deploy/instance-a.json) are one-second observations, three
 failed observations, a 30-second evidence age limit, and 16 MiB maximum observed
 promotion lag. Lag is measured against the last accepted primary sample, not the
 unobservable final WAL position. Missing/stale evidence can leave the cluster
 unavailable. Agents invalidate old evidence after a peer incarnation changes.
-Conservative timeline validation can wait for replica restartpoints after a
-promotion; the integration runner checkpoints and verifies timeline alignment.
+Candidate validation requires equal observed timeline IDs and matching database
+system identity; it does not compare timeline-history contents. It can wait for
+replica restartpoints after a promotion; the integration runner checkpoints and
+verifies timeline alignment. PostgreSQL's native recovery tools handle history
+and WAL compatibility during rejoin.
 
 ## Start a fresh development lab
 
@@ -144,6 +153,10 @@ Status separates desired `state.Primary`/`state.Generation` from the observed
 receiver, and upstream. It also exposes Raft leader/term, evidence age,
 reconciliation errors, recovery state, and durable `state.History`. A local
 status response or elected leader alone does not prove current quorum.
+`local.database.healthy` means database observation succeeded, not that replication
+is caught up. Check receiver/replay state and `reconciliation_error` too.
+`quorum_last_confirmed_at` and `last_successful_reconcile` are historical timestamps;
+there is no separate last-successful-health-check field or full Raft role enum.
 
 `make integration` builds the Linux agent and starts a fresh Compose project named
 `maat-integration-<unique-id>`. Each run has its own cluster/fencing identity,
@@ -210,7 +223,9 @@ There is no automatic data replacement. Inspect status and resolve its cause;
 if rebuilding is intended, read the current `raft_leader`, `state.Generation`,
 and `state.Primary`. Run the following on the current leader, using the current
 generation and a target that is **not** the authorized primary. This example
-assumes leader `instance-b`, target `instance-a`, and generation `2`:
+assumes leader `instance-b`, target `instance-a`, and generation `2`. The target's
+agent must be running, but its PostgreSQL must already be verified stopped;
+reinitialization does not stop a running database for the operator:
 
 ```sh
 docker compose exec -T --user postgres instance-b maat reinitialize \
@@ -266,6 +281,14 @@ explicit local checks; CI does not exercise them.
 
 `make test` runs Go unit tests, Go tests with the race detector and fault hooks,
 and the Python deployment-script unit tests.
+For significant codebase changes, also run `make integration` and any additional
+scenarios affected by the change, as required by [AGENTS.md](AGENTS.md). That
+target runs only the primary-failure/rejoin smoke scenario; `--scenario all`
+selects all eight ordinary cases, and the deterministic matrix remains separate.
+
+Bare `make` runs `all`: `clean`, `fmt`, `lint`, `build`, `test`, and `integration`.
+It removes `bin/` (including retained test configuration and credentials) and
+launches a fresh fault-injection lab. Use explicit targets to choose those effects.
 
 ```sh
 make fmt
@@ -278,7 +301,7 @@ MAAT_PG_INTEGRATION=1 go test ./internal/postgres -run TestNativeLifecycle -coun
 ```
 
 The native lifecycle test is skipped unless explicitly enabled. `make run` invokes
-`go run .` and shows CLI usage without arguments; use
+`go run .` and shows CLI usage with a nonzero exit status without arguments; use
 `go run . run --config PATH` only in a correctly configured node environment.
 `make clean` removes the entire `bin/` directory, including generated test files; it leaves Docker volumes untouched.
 

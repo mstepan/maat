@@ -1,3 +1,10 @@
+> Archived design: the pre-implementation context, proposed choices, and commands
+> below are historical. The former `make vet` target has been replaced by
+> `make lint`; significant codebase changes also require `make integration`.
+> See [AGENTS.md](../../../../AGENTS.md), [README](../../../../README.md), and
+> [current capability specs](../../../specs) for current instructions and
+> implementation limits.
+
 ## Context
 
 The existing executable has no HA behavior. This change implements a development

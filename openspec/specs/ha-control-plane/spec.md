@@ -3,6 +3,21 @@
 ## Purpose
 Define durable Raft authority, bootstrap, candidate eligibility, serialized failover, and recovery of PostgreSQL primary authorization.
 
+## Implementation notes
+
+The development controller uses fixed three-voter membership and leader-local
+promotion. Eligibility requires matching system identity and equal observed
+timeline IDs; timeline-history text is exposed by observation but is not compared
+by the candidate policy. The checks conservatively wait for replica restartpoints
+instead of admitting a candidate on a different observed timeline.
+
+For an unfinished transition, reconciliation retains its original candidate and
+attempts leadership transfer back to it. An unavailable candidate blocks progress.
+The uncertain-writer replacement scenario below is enforced and unit-tested by
+the FSM, but automatic replacement of an unfinished candidate is not implemented
+by the reconciler. See [validation](../../../docs/validation.md) for runtime
+coverage and remaining limits.
+
 ## Requirements
 
 ### Requirement: Durable control-plane authority

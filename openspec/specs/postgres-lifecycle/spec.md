@@ -3,6 +3,21 @@
 ## Purpose
 Define native PostgreSQL initialization, replication, safe control operations, old-primary rejoin, operator-authorized data replacement, and credential handling.
 
+## Implementation notes
+
+PostgreSQL 18 native tools perform backup, manifest verification, rewind, and
+history/WAL compatibility checks. Go validates managed paths, control-file
+prerequisites, authority, and observed results; it does not implement timeline
+ancestry analysis. The `local.database.healthy` status field means observation
+succeeded. Replica readiness additionally requires `VerifyReplica` receiver,
+upstream, and replay checks.
+
+Reinitialization requires a live target agent with PostgreSQL already stopped;
+the rebuild operation does not stop a running database. Failed or interrupted
+data preparation is journaled as `reinitialization_required`; transient source
+or preflight failures can instead leave a reconciliation error and be retried.
+There is no automatic replacement of existing data after a rewind failure.
+
 ## Requirements
 
 ### Requirement: Native initialization and observed replication health

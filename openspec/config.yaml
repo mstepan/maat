@@ -1,0 +1,77 @@
+schema: spec-driven
+
+context: |
+  Project: maat, a custom PostgreSQL high-availability controller written in Go.
+  Read docs/Custom PostgreSQL HA Controller — Technical Specification.md and
+  AGENTS.md before designing or implementing controller behavior. The technical
+  specification defines the target architecture, MVP, safety invariants, and
+  failure scenarios. Identify unresolved policies rather than inventing guarantees.
+
+  Current implementation: module maat, Go 1.27.1 or newer, a main.go that only
+  prints a startup message, and a Makefile. No HA components, dependencies,
+  configuration interface, or tests exist yet. Distinguish planned behavior from
+  implemented features and keep README.md consistent with the specification.
+
+  Target architecture: one Go agent beside each PostgreSQL instance, initially
+  three nodes. Agents form the control plane using HashiCorp Raft with durable
+  authoritative state; there is no etcd or separate controller service. Raft owns
+  membership, HA generation, primary authorization, and desired topology.
+  PostgreSQL owns observed database state, WAL, and native physical streaming
+  replication. Never implement consensus, WAL streaming, or data copying in Go.
+  Raft leadership is separate from PostgreSQL primary status; HA generation is
+  separate from PostgreSQL timeline.
+
+  MVP: asynchronous replication, health monitoring, membership, election,
+  fencing, promotion, replica reconfiguration, rewind-based rejoin, and
+  idempotent reconciliation. Asynchronous failover can lose transactions.
+  Synchronous replication, elaborate candidate policies, maintenance mode, TLS,
+  node authentication, administrative authorization, and metrics are future work.
+
+  Safety: authorize at most one primary per HA generation. Failover must follow
+  detection and Raft leadership with quorum, candidate validation, fencing and
+  verification, committed authorization with generation increment, promotion
+  and verification, then replica reconfiguration. A failed connection or fencing
+  API success alone does not prove isolation. Never authorize a replacement while
+  the old primary may accept writes, or promote unilaterally without Raft majority.
+  Validate membership, current Raft state, agent and PostgreSQL health, recovery
+  state, timeline, WAL/replay position, lag, fencing, and maintenance/drain state
+  when supported. Stale nodes must not self-promote. Observe PostgreSQL after
+  every control operation. Use explicit, recoverable transitions and reconcile
+  authorization/role mismatches after crashes. Agent loss alone does not change
+  the database role; an unhealthy agent's node is not a safe promotion candidate.
+
+  Replication and recovery: use pg_basebackup and pg_rewind with validated
+  prerequisites; configure dedicated replication credentials, pg_hba.conf,
+  primary_conninfo, and slots as needed. Verify WAL receiver and replay before
+  declaring replicas healthy. Prevent a returning old primary from accepting
+  application writes before rejoin. Data-directory replacement is destructive
+  recovery and requires target/prerequisite validation. Protect fencing
+  credentials and keep secrets out of logs, source, and examples.
+
+  Implementation: prefer existing code and the standard library; add dependencies
+  only for concrete needs. Preserve the fencing abstraction. Component/interface
+  examples are guidance, not a requirement to scaffold unused packages.
+  For Go changes run make fmt, make test, make vet, and make build. Other existing
+  commands are make run and make clean. An empty test suite does not validate HA.
+  Specification section 34 failure scenarios must pass before claiming automatic
+  failover is production-ready; never claim lossless asynchronous failover.
+
+rules:
+  proposal:
+    - State the problem, scope, non-goals, and affected safety invariants.
+    - Keep the change within the MVP unless an extension is explicitly requested.
+    - Identify unresolved operational policies and distinguish new work from existing behavior.
+  design:
+    - Prefer the smallest design that meets the specification; justify new dependencies and abstractions.
+    - For HA changes, describe authoritative versus observed state, transition ordering, idempotency, and crash recovery.
+    - Address applicable quorum, candidate validation, fencing verification, replication, and destructive recovery risks.
+    - Define how control-operation results and relevant operational state will be observed and verified.
+  specs:
+    - Use testable requirements and concrete Given/When/Then scenarios with observable outcomes.
+    - Cover applicable safety invariants and failure scenarios from technical specification section 34, including restart and retry behavior.
+    - State asynchronous data-loss limitations and unresolved policies explicitly; do not imply unimplemented security or readiness guarantees.
+  tasks:
+    - Order small, verifiable tasks by dependency; avoid speculative scaffolding.
+    - Include focused regression checks for changed safety and transition logic, with applicable failure and crash scenarios.
+    - Include make fmt, make test, make vet, and make build for Go changes; report unavailable checks and their reasons.
+    - Include README.md updates when implemented behavior changes; for documentation-only changes verify local links, Makefile commands, and consistency with the specification and code.

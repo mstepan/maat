@@ -4,9 +4,17 @@ context: |
   Project: maat, a monorepo whose implemented agent is a custom PostgreSQL
   high-availability controller written in Go. Agent source, module, tests, build
   recipes, Compose assets, and deployment runners live under agent/. Root Make
-  targets forward to agent/; direct Go/Compose commands run there. The agent
-  module path remains maat; future Go artifacts will use independent modules.
-  dashboard/, k8s-controller/, and helm-deployment/ are README-only future work;
+  targets forward to agent/; dashboard-* targets forward to dashboard/. Direct Go
+  commands run in the independent artifact modules; Compose commands run in agent/.
+  The agent module path remains maat; dashboard has module path maat/dashboard and
+  executable maat-dashboard. Dashboard core/UI are deployment independent, with
+  discovery, status-reader and session contracts and isolated Compose and agent HTTP
+  adapters. It monitors existing local Unix-socket Docker contexts, defaults to
+  maat-dev with --project NAME, refreshes every two seconds, shows structured node
+  details and sampled byte lag/age with a 30-second UI staleness limit, and suspends
+  the terminal for native selected-node unrestricted postgres psql. Monitoring does
+  not mutate HA or container/data lifecycle. No Kubernetes adapter is implemented.
+  k8s-controller/ and helm-deployment/ are README-only future work;
   the future CRD kind is PostgresqlCluster. Shared docs and OpenSpec stay at the
   root. The reorganized deployment targets fresh labs without existing-lab migration.
   Read docs/Custom PostgreSQL HA Controller — Technical Specification.md and
@@ -91,6 +99,9 @@ context: |
   significant codebase change also execute make integration and relevant extra
   fault scenarios; report unavailable checks and reasons. Documentation-only
   changes require local-link, Makefile-command, and spec/code consistency checks.
+  Dashboard checks use make dashboard-fmt, dashboard-test (includes race),
+  dashboard-lint, and dashboard-build; its fresh-lab terminal smoke is
+  python3 dashboard/deploy/smoke.py after make linux-build dashboard-build.
   make run shows CLI usage and exits nonzero without arguments. make clean removes
   all agent/bin/ assets. Bare make runs all, including clean and integration; use
   explicit targets when those effects are not intended.

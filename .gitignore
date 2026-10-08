@@ -1,4 +1,5 @@
 /bin/
 /agent/bin/
+/dashboard/bin/
 .secrets/
 __pycache__/

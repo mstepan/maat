@@ -1,0 +1,36 @@
+name: dashboard-ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: dashboard/go.mod
+          cache-dependency-path: dashboard/go.sum
+      - name: Check formatting
+        run: |
+          make dashboard-fmt
+          git diff --exit-code -- '*.go'
+      - name: Build
+        run: make dashboard-build
+      - name: Lint
+        run: make dashboard-lint
+      - name: Test
+        run: make dashboard-test

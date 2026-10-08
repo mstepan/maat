@@ -5,18 +5,21 @@ The implemented agent runs beside each PostgreSQL instance and uses HashiCorp
 Raft for durable HA authorization and native PostgreSQL physical replication.
 
 **Status: development controller; not production-ready.** Asynchronous failover
-can lose acknowledged transactions. The other artifacts are future work.
+can lose acknowledged transactions. The dashboard monitors the local Compose lab;
+the Kubernetes and Helm artifacts remain future work.
 
 | Artifact | Status | Purpose |
 | --- | --- | --- |
 | [agent](agent/README.md) | Implemented | Three-node PostgreSQL 18 HA agent, Docker Compose lab, and fault runners |
-| [dashboard](dashboard/README.md) | Future work | Terminal UI for real-time PostgreSQL HA and agent monitoring |
+| [dashboard](dashboard/README.md) | Implemented | Terminal overview, node details, sampled replication lag, and native selected-node psql |
 | [k8s-controller](k8s-controller/README.md) | Future work | Kubernetes controller and `PostgresqlCluster` CRD |
 | [helm-deployment](helm-deployment/README.md) | Future work | Helm deployment for the Kubernetes/CRD artifact |
 
-Only `agent/` currently has a Go module. Its module path remains `maat` and its
-executable remains `maat`. Future Go artifacts will receive independent modules
-when implemented; there is no root Go module or workspace yet.
+`agent/` has module path `maat` and executable `maat`; `dashboard/` has independent
+module path `maat/dashboard` and executable `maat-dashboard`. There is no root Go
+module or workspace. The dashboard core and UI use deployment-independent
+contracts; Compose discovery/session execution and HTTP status mapping are
+isolated adapters. Kubernetes support is future work.
 
 ## Development
 
@@ -31,7 +34,7 @@ make build
 make integration
 ```
 
-The root Makefile forwards every existing target to `agent/`. The same targets
+The root Makefile forwards the existing agent targets to `agent/`. The same targets
 work directly there, for example `make -C agent build`. Binaries and generated
 integration assets live in `agent/bin/`; lab credentials live in ignored
 `agent/.secrets/`. `make clean` removes all of `agent/bin/`, including retained
@@ -42,6 +45,23 @@ lab; use explicit targets to choose those effects.
 commands and Docker Compose commands run from `agent/`. From the repository root,
 explicit fault-runner paths begin with `agent/deploy/` and binary paths begin with
 `agent/bin/`. See [agent operations](agent/README.md) for usage and safety limits.
+
+Dashboard commands from the repository root:
+
+```sh
+make dashboard-fmt dashboard-test dashboard-lint dashboard-build
+make dashboard-run                        # existing maat-dev lab, interactive terminal
+make dashboard-run ARGS='--project NAME'   # another existing local lab
+make dashboard-clean                      # removes dashboard/bin/, including smoke assets
+```
+
+The dashboard discovers published loopback status ports and refreshes every two
+seconds. Use arrows or `j/k`, Enter for details, `p` for unrestricted native
+`psql` as postgres, `\q` to return, `?` for help, and `q` to quit. Monitoring only
+reads status and Docker metadata. Lag is sampled bytes with age and explicit
+stale/unavailable labels; it cannot establish final transaction loss or current
+Raft quorum. See [dashboard operations](dashboard/README.md) for requirements,
+architecture, controls, and the isolated terminal smoke command.
 
 ## Fresh development labs
 

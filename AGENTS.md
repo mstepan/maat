@@ -22,9 +22,13 @@ runners exist; see [the validation record](docs/validation.md) for coverage and
 remaining gaps. This is not production-ready HA. Go 1.27.1 or newer is required
 by `agent/go.mod`.
 
-`dashboard/`, `k8s-controller/`, and `helm-deployment/` are README-only future
-artifacts. Shared docs and OpenSpec remain at the root. Root Makefile targets
-forward to `agent/`; direct Go and Docker Compose commands run from there.
+`dashboard/` is the independent `maat/dashboard` Go module with deployment-neutral
+core/UI and isolated Compose discovery/session and agent HTTP adapters. It monitors
+existing labs and hands the terminal to native psql; it does not control HA.
+`k8s-controller/` and `helm-deployment/` are README-only future artifacts. Shared
+docs and OpenSpec remain at the root. Root Makefile targets
+forward to `agent/`; `dashboard-*` targets forward to `dashboard/`. Direct Go
+commands run in their artifact module; Docker Compose commands run from `agent/`.
 The reorganized deployment targets fresh labs without existing-lab migration.
 
 ## Architecture and implementation scope
@@ -124,6 +128,15 @@ assets for inspection. Do not substitute `make test` for this integration check.
 Report checks that could not run and their reasons; do not present an empty test
 suite as validation of HA behavior. For documentation-only changes, verify local
 links, commands against the Makefile, and consistency with the spec and code.
+
+For dashboard changes also run `make dashboard-fmt dashboard-test dashboard-lint
+dashboard-build`. The dashboard test target includes race tests. Its isolated
+real-terminal smoke is `python3 dashboard/deploy/smoke.py` after
+`make linux-build dashboard-build`; it creates its own project, injects
+agent/database/container failures, and stops containers while retaining
+volumes/assets under `dashboard/bin/`. Keep future deployment adapters behind the
+existing core contracts; do not import Docker or Kubernetes types/commands into
+core or TUI.
 
 Bare `make` runs `all`, which includes `clean` and `integration`; use explicit
 targets when you do not intend to remove `agent/bin/` or launch a fault-injection lab.

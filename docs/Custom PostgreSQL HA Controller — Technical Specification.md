@@ -10,6 +10,15 @@ for tested scenarios and remaining gaps. Component/type examples below are
 conceptual, not declarations of the current Go API; dynamic membership,
 maintenance controls, production security, and metrics remain future work.
 
+The independent [dashboard](../dashboard/README.md) now provides a keyboard-driven
+TUI for existing local Compose labs: overview, structured node details, sampled
+byte lag/age, and terminal handoff to selected-node native psql. Its core/UI are
+deployment independent; Compose discovery/session execution and HTTP status
+mapping are adapters. Monitoring is read-only, while manual postgres sessions
+are unrestricted. Kubernetes deployment support is future work. Stale observations
+and historical quorum confirmation do not prove current authority, replication
+readiness, or actual final transaction loss.
+
 ## 1. Objective
 
 Build a custom PostgreSQL HA controller similar in concept to Patroni, implemented in Go, without etcd.

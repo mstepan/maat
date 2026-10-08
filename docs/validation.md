@@ -7,6 +7,59 @@ machine failures. Asynchronous replication can lose committed transactions.
 
 ## Recorded implementation checks
 
+### Dashboard TUI checks — 2026-10-08
+
+The independent `maat/dashboard` module monitors existing local Compose labs with
+separate core, TUI, Compose, and HTTP adapters. Controller behavior and agent
+source/configuration were unchanged. tview/tcell provide terminal widgets and
+suspension; Kubernetes support remains future work.
+
+Root `make fmt`, `make test`, `make lint`, and `make build` passed. Root
+`make dashboard-fmt dashboard-test dashboard-lint dashboard-build` passed after
+final review fixes, including dashboard race tests and zero lint issues. Focused
+checks cover immutable target/peer membership conflicts, stale snapshots during
+pending retries and session return, delayed-result cancellation, selection,
+lag zero/null/age boundaries and integers above 2^53, bounded HTTP payload/schema
+validation, unsafe transport/terminal text, Docker labels/ports/stopped/paused
+instances, exact psql arguments, simulated navigation, unknown unhealthy database
+fields, session launch failure, and event-loop shutdown. Missing Docker CLI errors
+were verified separately. A fresh reviewer identified retry freshness, peer
+membership validation, and receiver-state presentation gaps; their regression
+tests failed before the fixes and passed with the full dashboard suite afterward.
+
+`make integration` passed in fresh project `maat-integration-b2f07a39c4e9`: primary
+process failure, verified fence/authorization/promotion ordering, replica following,
+and old-primary rejoin; generation 1→2, primary `instance-b`. Cleanup stopped all
+three containers and retained volumes/assets under `agent/bin/`.
+
+`python3 dashboard/deploy/smoke.py` passed (exit 0) in fresh project
+`maat-dashboard-16c5a21fcefb`, using automatically assigned loopback status ports.
+Its real PTY checks verified the isolated cluster/full container identity,
+overview/details, the exact selected replica hostname returned by SQL as postgres,
+SQL input containing dashboard keys,
+Ctrl-C query cancellation, and `\q` returning to the same node/details. It then
+verified agent-only failure with the database still running and a session still
+available, recovery, stale sampled lag while only one agent remained reachable,
+PostgreSQL-only failure with that agent reachable, failed psql connection returning
+to UI, stopped-container refusal without restart, dynamic-port recovery, retained
+selection/navigation, below-minimum resize prompt, 80-column detail scrolling,
+and exact terminal-attribute restoration on normal quit and SIGTERM. Only the
+smoke runner injected faults; the dashboard observed state. Cleanup stopped all
+containers and retained volumes and generated assets at
+`dashboard/bin/maat-dashboard-0qh5ce_g/`. The local evidence log is
+`/private/tmp/maat-dashboard-smoke.log`. Earlier smoke attempts exposed harness
+issues with Enter encoding, cursor-delta assertions, output draining, and macOS
+PTY attribute checks; these were corrected before recording this successful run.
+
+Make dry runs verified existing agent/default behavior and dashboard project/run/
+clean forwarding. Active local documentation links, module/CI paths, generated
+asset ignores, `git diff --check`, and strict OpenSpec change validation passed.
+Hosted CI, the native PostgreSQL lifecycle opt-in, and the complete controller
+failure matrices were not rerun for this observation-only feature. Existing HA
+validation gaps below remain; status agreement never proves current quorum,
+sampled lag cannot establish actual final transaction loss, and manual postgres
+sessions remain unrestricted.
+
 ### Monorepo refactor checks — 2026-10-08
 
 The agent source, tests, build/Compose assets, and runners now reside in `agent/`.

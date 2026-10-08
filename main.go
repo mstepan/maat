@@ -25,17 +25,12 @@ func main() {
 	}
 }
 func run(ctx context.Context, args []string, out io.Writer) error {
-	names := make([]string, 0, len(commands))
-	var selected command
-	for _, candidate := range commands {
-		names = append(names, candidate.name())
-		if len(args) > 0 && args[0] == candidate.name() {
-			selected = candidate
-		}
-	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: maat {%s} --config PATH", strings.Join(names, "|"))
+		return fmt.Errorf("usage: maat {%s} --config PATH", strings.Join(allCommandNames(), "|"))
 	}
+
+	selected := selectCommandByName(args[0])
+
 	if selected == nil {
 		return fmt.Errorf("unknown command %q", args[0])
 	}

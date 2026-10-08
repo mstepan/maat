@@ -1,7 +1,14 @@
 schema: spec-driven
 
 context: |
-  Project: maat, a custom PostgreSQL high-availability controller written in Go.
+  Project: maat, a monorepo whose implemented agent is a custom PostgreSQL
+  high-availability controller written in Go. Agent source, module, tests, build
+  recipes, Compose assets, and deployment runners live under agent/. Root Make
+  targets forward to agent/; direct Go/Compose commands run there. The agent
+  module path remains maat; future Go artifacts will use independent modules.
+  dashboard/, k8s-controller/, and helm-deployment/ are README-only future work;
+  the future CRD kind is PostgresqlCluster. Shared docs and OpenSpec stay at the
+  root. The reorganized deployment targets fresh labs without existing-lab migration.
   Read docs/Custom PostgreSQL HA Controller — Technical Specification.md and
   AGENTS.md before designing or implementing controller behavior. The technical
   specification defines the target architecture, MVP, safety invariants, and
@@ -20,9 +27,9 @@ context: |
   container against surviving identity-bound volumes. Dynamic membership and
   container replacement are not implemented. Unit, race, real durable Raft and
   native PostgreSQL lifecycle checks exist; make integration invokes
-  deploy/run_integration.py in a fresh isolated Compose project and runs the
+  agent/deploy/run_integration.py in a fresh isolated Compose project and runs the
   primary-failure/rejoin smoke scenario. Its --scenario all option runs eight
-  ordinary cases. deploy/integration.py directly targets the existing maat-dev
+  ordinary cases. agent/deploy/integration.py directly targets the existing maat-dev
   lab. Default integration cleanup stops containers and retains volumes/assets.
   Test-only build-tagged hooks exercise 17 exact
   transition crash boundaries, six quorum-loss windows, six leadership-change
@@ -85,7 +92,7 @@ context: |
   fault scenarios; report unavailable checks and reasons. Documentation-only
   changes require local-link, Makefile-command, and spec/code consistency checks.
   make run shows CLI usage and exits nonzero without arguments. make clean removes
-  all bin/ assets. Bare make runs all, including clean and integration; use
+  all agent/bin/ assets. Bare make runs all, including clean and integration; use
   explicit targets when those effects are not intended.
   Specification section 34 failure scenarios must pass before claiming automatic
   failover is production-ready; never claim lossless asynchronous failover.

@@ -1,3 +1,4 @@
 /bin/
+/agent/bin/
 .secrets/
 __pycache__/

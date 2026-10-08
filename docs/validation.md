@@ -7,6 +7,48 @@ machine failures. Asynchronous replication can lose committed transactions.
 
 ## Recorded implementation checks
 
+### Monorepo refactor checks — 2026-10-08
+
+The agent source, tests, build/Compose assets, and runners now reside in `agent/`.
+The 40 moved Go/module/deployment files were compared byte-for-byte with their
+pre-refactor Git versions; controller logic and node configuration did not change.
+
+Root `make fmt`, `make test`, `make lint`, and `make build` passed, as did
+`make -C agent build` and `make -C agent test`. Tests included normal Go tests,
+fault-tagged race tests, and both Python runner tests. Lint reported zero issues.
+All 15 root targets and the default `all` target were checked with Make dry runs,
+including architecture override and clean resolution. Root `make run` displayed
+the expected CLI usage and propagated its nonzero exit. Shell syntax, Compose
+configuration, generated-path ignores, and active local documentation links
+were verified. CI module/cache paths were updated; hosted CI was not run here.
+The final review identified the Docker ignore file as a required build-context
+asset; it was moved unchanged into `agent/` so secrets and retained test assets
+remain excluded. Root `make docker-build` then passed. The agent Makefile also
+matches its pre-refactor version byte-for-byte.
+
+Fresh isolated Compose runs passed:
+
+| Command from repository root | Observed outcome |
+| --- | --- |
+| `make integration` | Primary process failure, verified fence/authorization/promotion ordering, replica following, and old-primary rejoin; generation 1→2, primary `instance-b`. |
+| `python3 agent/deploy/run_integration.py --scenario authorized-crash` | Authorized candidate restart after crash and leader change, completed promotion and rejoin; generation 1→2, primary `instance-b`. |
+| `make fault-build`; `python3 agent/deploy/concurrent_transition.py --cleanup --timeout 150` | Overlapping real-agent proposals committed exactly one transition and one replacement authorization; primary `instance-c`, then old-primary rejoin. |
+| `python3 agent/deploy/transition_crashes.py --binary agent/bin/maat-faults-linux --point after-authorize --mode crash --remove-test-volumes --report /tmp/maat-monorepo-after-authorize.json` | Exact post-authorization boundary and successful crash resumption verified. |
+
+All four runner commands exited successfully after cleanup. Smoke and ordinary
+crash labs retained stopped containers, volumes, and assets under `agent/bin/`.
+The explicit fault cleanup flags removed only their own disposable test projects
+and volumes. Session logs are `/tmp/maat-monorepo-smoke.log`,
+`/tmp/maat-monorepo-authorized-crash.log`, `/tmp/maat-monorepo-concurrent.log`,
+and `/tmp/maat-monorepo-after-authorize.log`; these are local evidence, not
+checked-in artifacts.
+
+Native PostgreSQL lifecycle was not explicitly enabled, and the full ordinary
+and deterministic failure matrices were not rerun for this move-only change.
+The historical evidence and remaining production gaps below still apply.
+
+### Historical implementation checks — 2026-10-02
+
 The implementation session on 2026-10-02 recorded passing unit/race checks,
 real durable Raft restart/leadership-transfer/quorum tests, FSM snapshot restore
 at every transition phase, and the explicitly enabled PostgreSQL 18 native
@@ -36,27 +78,31 @@ command, and spec/code consistency checks rather than fault injection.
 | Real Raft | `go test ./internal/cluster -run TestDurableRaftRestartTransferAndQuorum -count=1 -v` | Three TCP Raft nodes, BoltDB persistence, restart, leadership transfer and quorum loss. No PostgreSQL processes in this test. |
 | Native PostgreSQL | `MAAT_PG_INTEGRATION=1 go test ./internal/postgres -run TestNativeLifecycle -count=1 -v` | PostgreSQL 18 tools, non-root user, ports 16541/16542. Real primary/replica, marker replay, promotion, crash recovery, rewind, retained rebuild, failed-rebuild retry and selected rename crash boundaries. No three-agent Docker coordination. |
 | Docker adapter | `go test -race ./internal/fencing` | Real HTTP test servers and Unix socket transport; version negotiation, timeouts, API errors, exact identity, replacement, restart policy and separate stop verification. Synthetic daemon responses do not establish real container isolation. |
-| Deployment assets | `sh -n deploy/entrypoint.sh deploy/prepare.sh`; `docker compose config --quiet` | Syntax/configuration passed. Credential-generation checks covered restrictive modes, no printed values, repeated preparation and symlink rejection. |
-| Integration runners | `make integration` / `deploy/run_integration.py`; `deploy/transition_crashes.py`; `deploy/concurrent_transition.py` | The isolated wrapper runs smoke by default, or eight ordinary cases with `--scenario all`. Historical evidence below covers the underlying scenarios; deterministic cases and overlapping proposals use separate runners. |
+| Deployment assets | `sh -n agent/deploy/entrypoint.sh agent/deploy/prepare.sh`; `docker compose -f agent/compose.yaml config --quiet` | Syntax/configuration passed. Credential-generation checks covered restrictive modes, no printed values, repeated preparation and symlink rejection. |
+| Integration runners | `make integration` / `agent/deploy/run_integration.py`; `agent/deploy/transition_crashes.py`; `agent/deploy/concurrent_transition.py` | The isolated wrapper runs smoke by default, or eight ordinary cases with `--scenario all`. Historical evidence below covers the underlying scenarios; deterministic cases and overlapping proposals use separate runners. |
 
-The tests live in [cluster](../internal/cluster), [agent](../internal/agent),
-[postgres](../internal/postgres), and [fencing](../internal/fencing).
+Direct Go commands in this record run from `agent/`; root Make targets forward
+to that directory. Historical command tables retain pre-refactor paths and
+results. Current runner commands below use the new layout.
+
+The tests live in [cluster](../agent/internal/cluster), [agent](../agent/internal/agent),
+[postgres](../agent/internal/postgres), and [fencing](../agent/internal/fencing).
 
 ## Compose suite results
 
 The supported entry point, `make integration`, builds the Linux agent and invokes
-[the isolated runner](../deploy/run_integration.py). Each invocation creates a
+[the isolated runner](../agent/deploy/run_integration.py). Each invocation creates a
 fresh `maat-integration-<unique-id>` project with separate identities, credentials,
 volumes, network, and dynamic loopback status ports. It runs smoke by default and
-stops its own containers afterward, retaining volumes and generated `bin/` assets.
-After `make linux-build`, use `python3 deploy/run_integration.py --scenario all`
+stops its own containers afterward, retaining volumes and generated `agent/bin/` assets.
+After `make linux-build`, use `python3 agent/deploy/run_integration.py --scenario all`
 to run all eight ordinary cases. No existing `maat-dev` cluster is needed or
 modified by this wrapper.
 
 The historical commands in the table below used the lower-level
-[scenario runner](../deploy/integration.py), which targets the existing
+[scenario runner](../agent/deploy/integration.py), which targets the existing
 `maat-dev` lab directly. Run them only when injecting failures into that lab is
-intended; use `deploy/run_integration.py` with the same scenario arguments for
+intended; use `agent/deploy/run_integration.py` with the same scenario arguments for
 a fresh isolated run. The scenario runner requires all three nodes to converge
 before each case, never removes volumes or recreates containers, and pins container
 IDs before injecting faults. Database checks use actual SQL roles, system IDs,
@@ -123,18 +169,18 @@ Reproduce the tested matrix from the repository root:
 
 ```sh
 make fault-build
-python3 deploy/concurrent_transition.py --cleanup --timeout 150
-python3 deploy/transition_crashes.py --binary bin/maat-faults-linux --point all --mode crash --remove-test-volumes --report /tmp/maat-transition-crashes.json
+python3 agent/deploy/concurrent_transition.py --cleanup --timeout 150
+python3 agent/deploy/transition_crashes.py --binary agent/bin/maat-faults-linux --point all --mode crash --remove-test-volumes --report /tmp/maat-transition-crashes.json
 for mode in quorum leadership; do
   for point in before-fence after-fence after-authorize before-promote after-promote before-complete; do
-    python3 deploy/transition_crashes.py --binary bin/maat-faults-linux --point "$point" --mode "$mode" --remove-test-volumes --report "/tmp/maat-transition-${mode}-${point}.json"
+    python3 agent/deploy/transition_crashes.py --binary agent/bin/maat-faults-linux --point "$point" --mode "$mode" --remove-test-volumes --report "/tmp/maat-transition-${mode}-${point}.json"
   done
 done
 ```
 
 The cleanup options above explicitly remove only newly created disposable test
 projects and volumes. Without those options, cleanup stops containers and keeps
-storage. Generated configuration/credentials remain in ignored `bin/` folders.
+storage. Generated configuration/credentials remain in ignored `agent/bin/` folders.
 The normal `maat-dev` cluster is never targeted by these two runners.
 
 Session evidence is in `/tmp/maat-transition-matrix-summary.json`,

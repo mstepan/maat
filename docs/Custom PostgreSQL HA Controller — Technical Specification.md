@@ -3,7 +3,7 @@
 This document defines the architecture and safety requirements. The repository
 now implements a fixed three-node PostgreSQL 18 Compose development controller
 using HashiCorp Raft, durable BoltDB state, native PostgreSQL tools, and Docker
-fencing. It is not production-ready. See [README](../README.md) for current
+fencing. It is not production-ready. See [agent README](../agent/README.md) for current
 commands and scope, [OpenSpec capabilities](../openspec/specs) for concrete
 requirements and implementation notes, and [the validation record](validation.md)
 for tested scenarios and remaining gaps. Component/type examples below are

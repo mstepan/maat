@@ -22,7 +22,8 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
       - name: Check formatting
         run: |
           make fmt

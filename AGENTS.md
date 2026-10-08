@@ -12,14 +12,20 @@ If a requirement is ambiguous, identify the unresolved policy rather than invent
 a safety guarantee.
 
 The repository implements a three-node PostgreSQL 18 Compose development
-controller in module `maat`. `main.go` provides `run`, `status`, and `reinitialize`
-commands with strict JSON configuration. `internal/agent`, `internal/cluster`,
-`internal/postgres`, and `internal/fencing` implement reconciliation, durable
-HashiCorp Raft/BoltDB state, native PostgreSQL lifecycle, and verified Docker
-fencing. Unit/race tests, native PostgreSQL lifecycle tests, and Compose fault
+controller in the independent `agent/` module (module path `maat`).
+`agent/main.go` provides `run`, `status`, and `reinitialize` commands with strict
+JSON configuration. `agent/internal/agent`, `agent/internal/cluster`,
+`agent/internal/postgres`, and `agent/internal/fencing` implement reconciliation,
+durable HashiCorp Raft/BoltDB state, native PostgreSQL lifecycle, and verified
+Docker fencing. Unit/race tests, native PostgreSQL lifecycle tests, and Compose fault
 runners exist; see [the validation record](docs/validation.md) for coverage and
 remaining gaps. This is not production-ready HA. Go 1.27.1 or newer is required
-by `go.mod`.
+by `agent/go.mod`.
+
+`dashboard/`, `k8s-controller/`, and `helm-deployment/` are README-only future
+artifacts. Shared docs and OpenSpec remain at the root. Root Makefile targets
+forward to `agent/`; direct Go and Docker Compose commands run from there.
+The reorganized deployment targets fresh labs without existing-lab migration.
 
 ## Architecture and implementation scope
 
@@ -99,10 +105,10 @@ Use the existing commands from the repository root:
 make fmt          # format Go code
 make test         # run Go tests, race tests with fault hooks, and Python unit tests
 make lint         # run golangci-lint
-make build        # build bin/maat
+make build        # build agent/bin/maat
 make integration  # run Compose primary-failure/rejoin smoke test in a fresh project
 make run          # show CLI usage; exits nonzero without command/config arguments
-make clean        # remove the entire bin/ directory, including generated test assets
+make clean        # remove the entire agent/bin/ directory, including generated test assets
 ```
 
 For Go changes, run formatting and relevant tests, lint, and build before claiming
@@ -120,7 +126,7 @@ suite as validation of HA behavior. For documentation-only changes, verify local
 links, commands against the Makefile, and consistency with the spec and code.
 
 Bare `make` runs `all`, which includes `clean` and `integration`; use explicit
-targets when you do not intend to remove `bin/` or launch a fault-injection lab.
+targets when you do not intend to remove `agent/bin/` or launch a fault-injection lab.
 
 Before calling automatic failover production-ready, validate all scenarios in
 specification section 34: process and machine failures, agent restarts, network

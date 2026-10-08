@@ -1,4 +1,4 @@
-name: maat-ci
+name: agent-ci
 
 on:
   push:

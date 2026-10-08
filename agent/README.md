@@ -278,7 +278,7 @@ specification section 34 coverage is still required before a production claim.
 
 ## Development checks
 
-The [GitHub Actions CI workflow](../.github/workflows/maat-ci.yaml) runs on pushes, pull
+The [GitHub Actions CI workflow](../.github/workflows/agent-ci.yaml) runs on pushes, pull
 requests, and manual dispatch. It checks Go formatting, runs tests plus race tests
 with the test-only fault hooks, runs golangci-lint, and builds using the Go version in
 `agent/go.mod`. Native PostgreSQL lifecycle and Docker Compose fault scenarios remain
